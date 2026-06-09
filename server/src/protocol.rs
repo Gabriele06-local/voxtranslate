@@ -1,42 +1,111 @@
 //! Shared message types for client <-> server communication and for parsing
 //! Deepgram streaming responses.
+//!
+//! V2: video-meeting model. Every peer speaks, listens, and connects P2P via
+//! WebRTC; the server relays signaling, fans out translations, and relays chat.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Messages the server pushes to participants as JSON over WebSocket text frames.
-///
-/// Serialized with an internal `type` tag, lowercased to match the client's
-/// `switch (data.type)`. Every speech message carries `from` (display name) and
-/// `from_id` (stable participant id) so the UI can attribute it ("Tu" for self).
+// --- Client -> Server ------------------------------------------------------
+
+/// Messages a peer sends as JSON text frames. (Audio is sent as binary frames.)
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClientMessage {
+    /// Begin a speaking session (opens a fresh Deepgram connection).
+    Start,
+    /// End the speaking session (flush + close Deepgram).
+    Stop,
+    /// WebRTC signaling, relayed verbatim to peer `to` (server adds `from`).
+    Offer { to: String, sdp: String },
+    Answer { to: String, sdp: String },
+    Ice {
+        to: String,
+        candidate: serde_json::Value,
+    },
+    /// A chat message to be translated and broadcast to the room.
+    Chat { text: String },
+    /// Local mute state, broadcast to peers for UI indicators.
+    MuteAudio { muted: bool },
+    MuteVideo { muted: bool },
+}
+
+// --- Server -> Client ------------------------------------------------------
+
+/// Lightweight peer descriptor sent in `room_joined`.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+pub struct PeerInfo {
+    pub id: String,
+    pub user_name: String,
+    pub lang: String,
+}
+
+/// Messages the server pushes to peers as JSON text frames.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    /// Partial transcript, sent only back to the speaker as live self-feedback.
-    Interim {
-        from: String,
-        from_id: String,
-        text: String,
+    /// Sent to a peer right after joining: its own id + the existing peers.
+    RoomJoined {
+        peer_id: String,
+        peers: Vec<PeerInfo>,
+    },
+    /// A new peer joined (sent to the others).
+    PeerJoined {
+        peer_id: String,
+        user_name: String,
         lang: String,
     },
-    /// Finalized transcript in the speaker's language, sent to everyone who
-    /// shares that language (including the speaker).
-    Transcript {
+    /// A peer left.
+    PeerLeft { peer_id: String },
+    /// The room already has the maximum number of peers; the join is rejected.
+    RoomFull,
+
+    /// WebRTC signaling relayed from peer `from`.
+    Offer { from: String, sdp: String },
+    Answer { from: String, sdp: String },
+    Ice {
         from: String,
-        from_id: String,
-        text: String,
-        lang: String,
+        candidate: serde_json::Value,
     },
-    /// Translated text in a recipient language, sent to participants of that
-    /// language. One per distinct other-language in the room.
-    Translation {
-        from: String,
-        from_id: String,
+
+    /// A translated chat message (broadcast to everyone, including the sender).
+    ChatMessage {
+        sender_id: String,
+        sender_name: String,
+        sender_lang: String,
         original: String,
-        translated: String,
-        source_lang: String,
-        target_lang: String,
+        translations: HashMap<String, String>,
+        timestamp: u64,
     },
-    /// Non-fatal error surfaced to a participant.
+
+    /// A peer toggled audio/video; `kind` is "audio" or "video".
+    PeerMuted {
+        peer_id: String,
+        kind: String,
+        muted: bool,
+    },
+
+    /// Live partial transcript for a speaker (original language), broadcast so
+    /// everyone can show it on the speaker's video cell.
+    SubtitleInterim {
+        speaker_id: String,
+        speaker_name: String,
+        text: String,
+        lang: String,
+    },
+    /// Finalized transcript + translations into every language in the room.
+    /// Each client renders `translations[my_lang]` (falling back to `original`).
+    SubtitleFinal {
+        speaker_id: String,
+        speaker_name: String,
+        original: String,
+        lang: String,
+        translations: HashMap<String, String>,
+    },
+
+    /// Non-fatal error surfaced to a peer.
     Error { message: String },
 }
 
@@ -52,10 +121,8 @@ impl ServerMessage {
 /// Query parameters for the `/ws` upgrade route:
 /// `/ws?room=..&lang=..&name=..&id=..&public=..`
 ///
-/// Every participant is symmetric (speaks and listens), so there is no role.
-/// `lang` is the single language the participant speaks and receives in.
-/// `public` sets the room's visibility when it is first created (otherwise the
-/// existing room's visibility is kept). Absent/false → private.
+/// Every peer is symmetric (speaks and listens). `lang` is the single language
+/// the peer speaks and receives in. `public` sets visibility on room creation.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsParams {
     pub room: String,
@@ -89,15 +156,6 @@ pub struct PublicRoom {
 #[derive(Debug, Clone, Serialize)]
 pub struct RoomsResponse {
     pub rooms: Vec<PublicRoom>,
-}
-
-/// Control frames a participant sends as JSON text to bracket a speaking session.
-/// `start` opens a fresh Deepgram connection, `stop` flushes and closes it.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum ClientControl {
-    Start,
-    Stop,
 }
 
 // --- Deepgram streaming response parsing -----------------------------------

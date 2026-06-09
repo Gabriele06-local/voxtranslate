@@ -1,8 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
 
-// Languages supported by the translator (and therefore by the UI). Shown as
-// endonyms so anyone can find their own language regardless of UI language.
 const LANGS = [
   { code: 'it', name: 'Italiano' },
   { code: 'en', name: 'English' },
@@ -23,9 +21,7 @@ const LANGS = [
         <h1 class="brand">Vox<span>Translate</span></h1>
         <p class="tagline" data-i18n="tagline"></p>
       </header>
-
       <div class="home-body">
-        <!-- You -->
         <div class="card">
           <div class="field-row">
             <label class="field grow">
@@ -41,17 +37,15 @@ const LANGS = [
           </div>
         </div>
 
-        <!-- Create or join -->
         <div class="card">
           <span class="card-title" data-i18n="createOrJoin"></span>
           <label class="field">
             <span class="field-label" data-i18n="roomCode"></span>
             <div class="room-row">
               <input id="room" type="text" autocomplete="off" spellcheck="false" />
-              <button id="dice" class="btn-ghost icon-btn" title="Random" aria-label="Random code">🎲</button>
+              <button id="dice" class="btn-ghost icon-btn" title="Random">🎲</button>
             </div>
           </label>
-
           <div class="field">
             <span class="field-label" data-i18n="visibility"></span>
             <div class="seg" id="vis-group" role="group">
@@ -60,12 +54,10 @@ const LANGS = [
             </div>
             <span class="hint" id="vis-hint"></span>
           </div>
-
           <button id="enter" class="btn-primary" data-i18n="connect"></button>
           <p id="home-status" class="status-line"></p>
         </div>
 
-        <!-- Public rooms lobby -->
         <div class="card">
           <div class="card-title-row">
             <span class="card-title" data-i18n="publicRooms"></span>
@@ -76,1120 +68,251 @@ const LANGS = [
       </div>
     </section>
 
-    <!-- ===================== SESSION ===================== -->
-    <section id="session" class="screen hidden">
-      <header class="session-header">
-        <div class="header-left">
-          <span class="conn-dot" id="conn-dot"></span>
-          <button id="room-badge" class="room-badge" title="Copy room code"></button>
-          <span class="vis-badge" id="vis-badge"></span>
-          <span class="lang-pair" id="my-lang"></span>
+    <!-- ===================== PRE-JOIN ===================== -->
+    <section id="prejoin" class="screen hidden">
+      <div class="prejoin-card card">
+        <div class="prejoin-head">
+          <span class="card-title" data-i18n="prejoinTitle"></span>
+          <span class="room-tag"><span id="prejoin-room" class="mono"></span> · <span id="prejoin-vis" class="vis-badge"></span></span>
         </div>
-        <button id="disconnect" class="btn-ghost danger" data-i18n="disconnect"></button>
-      </header>
+        <div class="preview-wrap">
+          <video id="preview" autoplay playsinline muted></video>
+        </div>
+        <div class="field-row">
+          <label class="field grow">
+            <span class="field-label" data-i18n="camera"></span>
+            <select id="cam-select"></select>
+          </label>
+          <label class="field grow">
+            <span class="field-label" data-i18n="microphone"></span>
+            <select id="mic-select"></select>
+          </label>
+        </div>
+        <p id="prejoin-status" class="status-line"></p>
+        <div class="prejoin-actions">
+          <button id="back-btn" class="btn-ghost" data-i18n="back"></button>
+          <button id="join-btn" class="btn-primary" data-i18n="join"></button>
+        </div>
+      </div>
+    </section>
 
-      <div class="panel">
-        <button id="mic" class="mic" aria-label="Record">
-          <span class="mic-icon">🎙️</span>
-          <span class="pulse-ring"></span>
-        </button>
-        <p id="mic-hint" class="mic-hint"></p>
-        <label class="mode-toggle">
-          <input type="checkbox" id="ptt-mode" />
-          <span data-i18n="pttMode"></span>
-        </label>
+    <!-- ===================== CALL ===================== -->
+    <section id="call" class="screen hidden">
+      <div class="call-main">
+        <header class="call-header">
+          <button id="call-room" class="room-badge mono" title="Copy"></button>
+          <span id="call-vis" class="vis-badge"></span>
+        </header>
+        <div id="video-grid" class="video-grid" data-peers="1"></div>
+        <div class="control-bar">
+          <button id="btn-mic" class="control-btn" data-i18n-title="muteTip">🎤</button>
+          <button id="btn-cam" class="control-btn" data-i18n-title="camTip">📷</button>
+          <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip">🔊</button>
+          <button id="btn-chat" class="control-btn" data-i18n-title="chatTip">💬<span id="chat-badge" class="chat-badge" hidden>0</span></button>
+          <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip">🚪</button>
+        </div>
       </div>
 
-      <div class="controls">
-        <label class="mode-toggle">
-          <input type="checkbox" id="auto-tts" checked />
-          <span data-i18n="autoTts"></span>
-        </label>
-        <label class="field voice-field">
-          <span class="field-label" data-i18n="voiceLabel"></span>
-          <select id="voice-select"></select>
-        </label>
-      </div>
-
-      <div id="log" class="log" aria-live="polite"></div>
+      <aside id="chat-panel" class="chat-panel closed">
+        <div class="chat-header">
+          <span class="card-title" data-i18n="chatTitle"></span>
+          <button id="chat-close" class="btn-ghost icon-btn">✕</button>
+        </div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" type="text" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" />
+          <button id="chat-send" class="btn-primary" data-i18n="send"></button>
+        </div>
+      </aside>
     </section>
   </main>
 
   <style>
-    .app {
-      min-height: 100dvh;
-      display: flex;
-      flex-direction: column;
-    }
-    .screen {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-    .hidden {
-      display: none !important;
-    }
+    .app { min-height: 100dvh; display: flex; flex-direction: column; }
+    .screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .hidden { display: none !important; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     /* ---------- Shared form bits ---------- */
     .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 18px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
     }
     .card-title {
-      display: block;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-      font-weight: 600;
-      margin-bottom: 14px;
+      display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); font-weight: 600;
     }
-    .card-title-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    .card-title-row .card-title {
-      margin-bottom: 0;
-    }
-    .field {
-      display: block;
-      margin-bottom: 16px;
-    }
-    .field:last-child {
-      margin-bottom: 0;
-    }
-    .field-row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .field-row .grow {
-      flex: 1 1 140px;
-      margin-bottom: 0;
-    }
+    .card-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .field { display: block; margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+    .field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .field-row .grow { flex: 1 1 140px; margin-bottom: 0; }
     .field-label {
-      display: block;
-      font-size: 0.76rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      margin-bottom: 6px;
+      display: block; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--muted); margin-bottom: 6px;
     }
-    .hint {
-      display: block;
-      margin-top: 7px;
-      font-size: 0.78rem;
-      color: var(--muted);
-      min-height: 1em;
+    .hint { display: block; margin-top: 7px; font-size: 0.78rem; color: var(--muted); min-height: 1em; }
+    input, select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 12px; font-size: 16px; outline: none; transition: border-color 0.15s;
     }
-    input,
-    select {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      border-radius: 10px;
-      padding: 12px;
-      font-size: 16px; /* >=16px prevents iOS zoom-on-focus */
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    input:focus,
-    select:focus {
-      border-color: var(--accent);
-    }
-    .room-row {
-      display: flex;
-      gap: 8px;
-    }
-    .room-row input {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .icon-btn {
-      flex: none;
-      font-size: 1.1rem;
-      padding: 0 14px;
-    }
+    input:focus, select:focus { border-color: var(--accent); }
+    .room-row { display: flex; gap: 8px; }
+    .room-row input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+    .icon-btn { flex: none; font-size: 1.1rem; padding: 0 14px; }
     .btn-primary {
-      width: 100%;
-      min-height: 48px;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      padding: 13px;
-      font-size: 1rem;
-      font-weight: 600;
-      transition: filter 0.15s;
+      width: 100%; min-height: 48px; background: var(--accent); color: #fff; border: none;
+      border-radius: 10px; padding: 13px; font-size: 1rem; font-weight: 600; transition: filter 0.15s;
     }
-    .btn-primary:hover {
-      filter: brightness(1.08);
-    }
-    .btn-primary:active {
-      transform: translateY(1px);
-    }
-    .btn-primary:disabled {
-      opacity: 0.6;
-    }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-primary:active { transform: translateY(1px); }
     .btn-ghost {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--muted);
-      border-radius: 8px;
-      padding: 9px 12px;
-      font-size: 0.85rem;
-      transition: all 0.15s;
-      white-space: nowrap;
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 8px; padding: 9px 12px; font-size: 0.85rem; transition: all 0.15s; white-space: nowrap;
     }
-    .btn-ghost:hover {
-      color: var(--text);
-      border-color: var(--muted);
-    }
-    .btn-ghost.danger:hover {
-      color: var(--rec);
-      border-color: var(--rec);
-    }
-    .status-line {
-      margin: 12px 0 0;
-      min-height: 1.1em;
-      font-size: 0.85rem;
-      color: var(--muted);
-    }
-    .status-line.error {
-      color: var(--rec);
-    }
-
-    /* Segmented control (visibility) */
-    .seg {
-      display: flex;
-      gap: 8px;
-    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+    .status-line { margin: 12px 0 0; min-height: 1.1em; font-size: 0.85rem; color: var(--muted); }
+    .status-line.error { color: var(--danger); }
+    .seg { display: flex; gap: 8px; }
     .seg-btn {
-      flex: 1;
-      min-height: 44px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      border-radius: 10px;
-      padding: 10px;
-      font-size: 0.95rem;
-      transition: all 0.15s;
+      flex: 1; min-height: 44px; background: var(--bg); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 10px; padding: 10px; font-size: 0.95rem; transition: all 0.15s;
     }
-    .seg-btn.active {
-      border-color: var(--accent);
-      color: var(--text);
-      background: var(--accent-dim);
+    .seg-btn.active { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }
+    .vis-badge {
+      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
     }
 
     /* ---------- Home ---------- */
-    .home-header {
-      text-align: center;
-      padding: 28px 18px 8px;
-    }
-    .brand {
-      margin: 0;
-      font-size: 1.9rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-    .brand span {
-      color: var(--accent);
-    }
-    .tagline {
-      margin: 4px 0 0;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
+    .home-header { text-align: center; padding: 28px 18px 8px; }
+    .brand { margin: 0; font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; }
+    .brand span { color: var(--accent); }
+    .tagline { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
     .home-body {
-      width: 100%;
-      max-width: 480px;
-      margin: 0 auto;
-      padding: 14px 16px 28px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
+      width: 100%; max-width: 480px; margin: 0 auto; padding: 14px 16px 28px;
+      display: flex; flex-direction: column; gap: 14px;
     }
-
-    /* Lobby list */
-    .rooms-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+    .rooms-list { display: flex; flex-direction: column; gap: 10px; }
     .room-item {
-      width: 100%;
-      text-align: left;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px 14px;
-      transition: all 0.15s;
+      width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px; transition: all 0.15s;
     }
-    .room-item:hover {
-      border-color: var(--accent);
-    }
-    .room-item:active {
-      transform: translateY(1px);
-    }
-    .room-item-main {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-    .room-item-code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--text);
-    }
-    .room-item-count {
-      font-size: 0.82rem;
-      color: var(--muted);
-      flex: none;
-    }
-    .room-item-members {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
-    }
-    .chip {
-      font-size: 0.78rem;
-      color: var(--text);
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 3px 9px;
-    }
-    .lobby-empty {
-      color: var(--muted);
-      text-align: center;
-      font-size: 0.88rem;
-      padding: 14px 0;
-    }
+    .room-item:hover { border-color: var(--accent); }
+    .room-item:active { transform: translateY(1px); }
+    .room-item-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .room-item-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
+    .room-item-count { font-size: 0.82rem; color: var(--muted); flex: none; }
+    .room-item-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip { font-size: 0.78rem; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
+    .lobby-empty { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
 
-    /* ---------- Session ---------- */
-    .session-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      gap: 10px;
-      position: sticky;
-      top: 0;
-      background: var(--bg);
-      z-index: 5;
+    /* ---------- Pre-join ---------- */
+    #prejoin { align-items: center; justify-content: center; padding: 20px; }
+    .prejoin-card { width: 100%; max-width: 460px; }
+    .prejoin-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
+    .room-tag { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .preview-wrap {
+      position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000;
+      border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
     }
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-      flex-wrap: wrap;
-    }
-    .conn-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: var(--muted);
-      flex: none;
-      transition: background 0.2s;
-    }
-    .conn-dot.connected {
-      background: var(--success);
-      box-shadow: 0 0 8px var(--success);
-    }
+    .preview-wrap video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    .prejoin-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .prejoin-actions .btn-ghost { min-height: 48px; padding: 0 20px; }
+    .prejoin-actions .btn-primary { flex: 1; }
+
+    /* ---------- Call ---------- */
+    #call { flex-direction: row; }
+    .call-main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 10px; gap: 8px; }
+    .call-header { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
     .room-badge {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      background: transparent;
-      border: none;
-      color: var(--text);
-      padding: 0;
-      cursor: pointer;
-    }
-    .vis-badge {
-      font-size: 0.68rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 2px 8px;
-    }
-    .lang-pair {
-      color: var(--muted);
-      font-size: 0.85rem;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .panel {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 22px 18px 4px;
-    }
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px 22px;
-      align-items: center;
-      justify-content: center;
-      padding: 6px 16px 12px;
-      border-bottom: 1px solid var(--border);
-    }
-    .controls .voice-field {
-      margin: 0;
-      min-width: 200px;
-      flex: 1 1 200px;
-      max-width: 320px;
-    }
-    .controls .field-label {
-      margin-bottom: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; background: transparent; border: none; color: var(--text); padding: 0; cursor: pointer;
     }
 
-    /* Mic button */
-    .mic {
-      position: relative;
-      width: 140px;
-      height: 140px;
-      border-radius: 50%;
-      background: var(--surface);
-      border: 2px solid var(--border);
-      color: var(--text);
-      display: grid;
-      place-items: center;
-      transition: all 0.18s;
-      touch-action: none;
-      user-select: none;
-      -webkit-user-select: none;
+    .video-grid {
+      display: grid; gap: 4px; flex: 1; background: #000; border-radius: 12px; overflow: hidden; min-height: 0;
     }
-    .mic:hover {
-      border-color: var(--accent);
+    .video-grid[data-peers="1"] { grid-template: 1fr / 1fr; }
+    .video-grid[data-peers="2"] { grid-template: 1fr / 1fr 1fr; }
+    .video-grid[data-peers="3"] { grid-template: 1fr 1fr / 1fr 1fr; }
+    .video-grid[data-peers="3"] .video-cell:nth-child(3) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
+    .video-grid[data-peers="4"] { grid-template: 1fr 1fr / 1fr 1fr; }
+
+    .video-cell { position: relative; background: var(--surface); overflow: hidden; min-height: 0; }
+    .video-cell video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .video-cell.self video { transform: scaleX(-1); }
+    .video-cell.self { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .avatar { position: absolute; inset: 0; display: grid; place-items: center; }
+    .avatar-initials { font-size: 2.4rem; font-weight: 700; color: rgba(255,255,255,0.9); }
+    .video-overlay {
+      position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 6px;
+      background: rgba(0,0,0,0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
     }
-    .mic-icon {
-      font-size: 3rem;
-      line-height: 1;
-      pointer-events: none;
+    .peer-name { font-size: 0.8rem; font-weight: 600; color: #fff; }
+    .peer-lang { font-size: 0.72rem; color: rgba(255,255,255,0.75); }
+    .mute-indicator { font-size: 0.8rem; }
+
+    .subtitle-area { position: absolute; bottom: 8px; left: 0; right: 0; padding: 0 10px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+    .subtitle {
+      background: rgba(0,0,0,0.75); color: #fff; padding: 5px 12px; border-radius: 6px;
+      max-width: 92%; text-align: center; backdrop-filter: blur(4px);
     }
-    .mic.recording {
-      border-color: var(--rec);
-      background: rgba(239, 68, 68, 0.12);
+    .subtitle-interim { opacity: 0.7; font-style: italic; }
+    .subtitle-translation { display: block; font-weight: 500; font-size: 0.9rem; }
+    .subtitle-original { display: block; font-size: 0.72rem; opacity: 0.6; margin-top: 2px; }
+
+    .control-bar {
+      display: flex; justify-content: center; gap: 10px; padding: 10px 16px;
+      background: rgba(19,20,28,0.8); backdrop-filter: blur(12px); border: 1px solid var(--border);
+      border-radius: 16px; margin: 0 auto; width: fit-content; max-width: 100%;
     }
-    .pulse-ring {
-      position: absolute;
-      inset: -2px;
-      border-radius: 50%;
-      border: 2px solid var(--rec);
-      opacity: 0;
-      pointer-events: none;
+    .control-btn {
+      width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--surface-elevated);
+      color: var(--text); font-size: 1.2rem; cursor: pointer; position: relative; transition: background 0.15s;
+      display: grid; place-items: center;
     }
-    .mic.recording .pulse-ring {
-      animation: pulse 1.4s ease-out infinite;
-    }
-    @keyframes pulse {
-      0% {
-        transform: scale(1);
-        opacity: 0.7;
-      }
-      100% {
-        transform: scale(1.5);
-        opacity: 0;
-      }
-    }
-    .mic-hint {
-      color: var(--muted);
-      font-size: 0.9rem;
-      margin: 16px 0 10px;
-      text-align: center;
-    }
-    .mode-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 0.88rem;
-      cursor: pointer;
-    }
-    .mode-toggle input {
-      width: auto;
+    .control-btn:hover { background: var(--border); }
+    .control-btn.active-danger { background: var(--danger); }
+    .control-btn.active-success { background: var(--success); }
+    .control-btn.leave { background: var(--danger); }
+    .chat-badge {
+      position: absolute; top: -3px; right: -3px; background: var(--danger); color: #fff;
+      font-size: 0.62rem; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 4px;
+      display: flex; align-items: center; justify-content: center;
     }
 
-    /* Message log */
-    .log {
-      flex: 1;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      max-width: 760px;
-      width: 100%;
-      margin: 0 auto;
+    /* ---------- Chat ---------- */
+    .chat-panel {
+      width: 320px; background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-right 0.3s;
     }
-    .log :global(.msg) {
-      padding: 8px 12px;
-      border-radius: 10px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      word-wrap: break-word;
-      max-width: 88%;
-    }
-    .log :global(.msg-from) {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      margin-bottom: 3px;
-    }
-    .log :global(.msg-own) {
-      align-self: flex-end;
-      background: var(--surface-2);
-      border-color: var(--accent-dim);
-    }
-    .log :global(.msg-incoming) {
-      align-self: flex-start;
-    }
-    .log :global(.msg-translated) {
-      align-self: flex-start;
-      color: var(--accent);
-      font-weight: 600;
-      font-size: 1.05rem;
-      border-color: var(--accent-dim);
-    }
-    .log :global(.msg-interim) {
-      align-self: flex-end;
-      color: var(--muted);
-      font-style: italic;
-      background: transparent;
-      border-style: dashed;
-    }
-    .log :global(.msg-error) {
-      align-self: center;
-      color: var(--rec);
-      border-color: var(--rec);
-      font-size: 0.88rem;
-    }
-    .log :global(.log-empty) {
-      align-self: center;
-      color: var(--muted);
-      text-align: center;
-      margin-top: 40px;
-      font-size: 0.9rem;
-    }
+    .chat-panel.closed { margin-right: -321px; }
+    .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .chat-messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .chat-msg { padding: 8px 12px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; }
+    .chat-msg-mine { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-dim); }
+    .chat-msg-other { align-self: flex-start; background: var(--surface-elevated); border: 1px solid var(--border); }
+    .chat-sender { font-size: 0.74rem; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+    .chat-text { line-height: 1.4; word-wrap: break-word; }
+    .chat-original { font-size: 0.74rem; color: var(--muted); margin-top: 4px; font-style: italic; }
+    .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+    .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
 
-    @media (max-width: 420px) {
-      .controls .voice-field {
-        max-width: none;
+    @media (max-width: 768px) {
+      #call { flex-direction: column; }
+      .chat-panel {
+        position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 62vh;
+        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
       }
+      .chat-panel.closed { margin-right: 0; }
+      .chat-panel.open { transform: translateY(0); }
+      .video-grid[data-peers="3"] .video-cell:nth-child(3) { max-width: 100%; }
     }
   </style>
 
   <script>
-    // ====================================================================
-    // i18n — all UI strings in the 8 supported languages. UI language follows
-    // the chosen "my language", defaulting from the browser (fallback: en).
-    // ====================================================================
-    const SUPPORTED = ['it', 'en', 'es', 'fr', 'de', 'pt', 'ja', 'zh'];
-    const ENDONYM = {
-      it: 'Italiano', en: 'English', es: 'Español', fr: 'Français',
-      de: 'Deutsch', pt: 'Português', ja: '日本語', zh: '中文',
-    };
-    const FLAG = {
-      it: '🇮🇹', en: '🇬🇧', es: '🇪🇸', fr: '🇫🇷',
-      de: '🇩🇪', pt: '🇵🇹', ja: '🇯🇵', zh: '🇨🇳',
-    };
-
-    const I18N = {
-      en: {
-        tagline: 'Real-time voice translation', roomCode: 'Room code', copy: 'Copy',
-        copied: 'Room code copied', copyFailed: 'Copy failed — select manually',
-        nameLabel: 'Your name (optional)', namePlaceholder: 'Guest',
-        langLabel: 'Your language', connect: 'Enter room', enterRoom: 'Enter a room code',
-        micDenied: 'Microphone access denied', recNotSupported: 'Recording not supported in this browser',
-        connecting: 'Connecting…', disconnect: 'Leave', autoTts: 'Auto speak translations',
-        voiceLabel: 'Voice', voiceAuto: 'Auto (match language)', waiting: 'Waiting for speech…',
-        tapStart: 'Tap to start talking', tapStop: 'Listening… tap to stop',
-        holdTalk: 'Hold to talk', releaseStop: 'Release to stop', pttMode: 'Push-to-talk (hold)',
-        you: 'You', connectionLost: 'Connection lost — reconnecting…',
-        createOrJoin: 'Create or join a room', visibility: 'Visibility', public: 'Public', private: 'Private',
-        publicRooms: 'Public rooms online', noPublicRooms: 'No public rooms yet — create one!',
-        refresh: 'Refresh', privateHint: "Private rooms aren't listed in the lobby",
-      },
-      it: {
-        tagline: 'Traduzione vocale in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
-        copied: 'Codice copiato', copyFailed: 'Copia non riuscita — seleziona manualmente',
-        nameLabel: 'Il tuo nome (opzionale)', namePlaceholder: 'Ospite',
-        langLabel: 'La tua lingua', connect: 'Entra', enterRoom: 'Inserisci un codice stanza',
-        micDenied: 'Accesso al microfono negato', recNotSupported: 'Registrazione non supportata in questo browser',
-        connecting: 'Connessione…', disconnect: 'Esci', autoTts: 'Pronuncia automatica delle traduzioni',
-        voiceLabel: 'Voce', voiceAuto: 'Automatica (in base alla lingua)', waiting: 'In attesa di voce…',
-        tapStart: 'Tocca per parlare', tapStop: 'In ascolto… tocca per fermare',
-        holdTalk: 'Tieni premuto per parlare', releaseStop: 'Rilascia per fermare', pttMode: 'Premi per parlare (tieni premuto)',
-        you: 'Tu', connectionLost: 'Connessione persa — riconnessione…',
-        createOrJoin: 'Crea o entra in una stanza', visibility: 'Visibilità', public: 'Pubblica', private: 'Privata',
-        publicRooms: 'Stanze pubbliche online', noPublicRooms: 'Ancora nessuna stanza pubblica — creane una!',
-        refresh: 'Aggiorna', privateHint: 'Le stanze private non compaiono nella lobby',
-      },
-      es: {
-        tagline: 'Traducción de voz en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
-        copied: 'Código copiado', copyFailed: 'Error al copiar — selecciona manualmente',
-        nameLabel: 'Tu nombre (opcional)', namePlaceholder: 'Invitado',
-        langLabel: 'Tu idioma', connect: 'Entrar', enterRoom: 'Introduce un código de sala',
-        micDenied: 'Acceso al micrófono denegado', recNotSupported: 'Grabación no compatible con este navegador',
-        connecting: 'Conectando…', disconnect: 'Salir', autoTts: 'Leer traducciones en voz alta',
-        voiceLabel: 'Voz', voiceAuto: 'Automática (según el idioma)', waiting: 'Esperando voz…',
-        tapStart: 'Toca para hablar', tapStop: 'Escuchando… toca para detener',
-        holdTalk: 'Mantén pulsado para hablar', releaseStop: 'Suelta para detener', pttMode: 'Pulsar para hablar (mantener)',
-        you: 'Tú', connectionLost: 'Conexión perdida — reconectando…',
-        createOrJoin: 'Crea o únete a una sala', visibility: 'Visibilidad', public: 'Pública', private: 'Privada',
-        publicRooms: 'Salas públicas en línea', noPublicRooms: 'Aún no hay salas públicas — ¡crea una!',
-        refresh: 'Actualizar', privateHint: 'Las salas privadas no aparecen en el lobby',
-      },
-      fr: {
-        tagline: 'Traduction vocale en temps réel', roomCode: 'Code de salle', copy: 'Copier',
-        copied: 'Code copié', copyFailed: 'Échec de la copie — sélectionnez manuellement',
-        nameLabel: 'Votre nom (facultatif)', namePlaceholder: 'Invité',
-        langLabel: 'Votre langue', connect: 'Rejoindre', enterRoom: 'Saisissez un code de salle',
-        micDenied: 'Accès au micro refusé', recNotSupported: 'Enregistrement non pris en charge par ce navigateur',
-        connecting: 'Connexion…', disconnect: 'Quitter', autoTts: 'Lire les traductions à voix haute',
-        voiceLabel: 'Voix', voiceAuto: 'Automatique (selon la langue)', waiting: 'En attente de voix…',
-        tapStart: 'Touchez pour parler', tapStop: 'Écoute… touchez pour arrêter',
-        holdTalk: 'Maintenez pour parler', releaseStop: 'Relâchez pour arrêter', pttMode: 'Appuyer pour parler (maintenir)',
-        you: 'Vous', connectionLost: 'Connexion perdue — reconnexion…',
-        createOrJoin: 'Créer ou rejoindre une salle', visibility: 'Visibilité', public: 'Publique', private: 'Privée',
-        publicRooms: 'Salles publiques en ligne', noPublicRooms: 'Aucune salle publique — créez-en une !',
-        refresh: 'Actualiser', privateHint: "Les salles privées n'apparaissent pas dans le lobby",
-      },
-      de: {
-        tagline: 'Sprachübersetzung in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
-        copied: 'Code kopiert', copyFailed: 'Kopieren fehlgeschlagen — manuell auswählen',
-        nameLabel: 'Dein Name (optional)', namePlaceholder: 'Gast',
-        langLabel: 'Deine Sprache', connect: 'Beitreten', enterRoom: 'Gib einen Raumcode ein',
-        micDenied: 'Mikrofonzugriff verweigert', recNotSupported: 'Aufnahme in diesem Browser nicht unterstützt',
-        connecting: 'Verbinden…', disconnect: 'Verlassen', autoTts: 'Übersetzungen automatisch vorlesen',
-        voiceLabel: 'Stimme', voiceAuto: 'Automatisch (passend zur Sprache)', waiting: 'Warte auf Sprache…',
-        tapStart: 'Zum Sprechen tippen', tapStop: 'Höre zu… zum Stoppen tippen',
-        holdTalk: 'Zum Sprechen halten', releaseStop: 'Zum Stoppen loslassen', pttMode: 'Push-to-Talk (halten)',
-        you: 'Du', connectionLost: 'Verbindung verloren — neu verbinden…',
-        createOrJoin: 'Raum erstellen oder beitreten', visibility: 'Sichtbarkeit', public: 'Öffentlich', private: 'Privat',
-        publicRooms: 'Öffentliche Räume online', noPublicRooms: 'Noch keine öffentlichen Räume — erstelle einen!',
-        refresh: 'Aktualisieren', privateHint: 'Private Räume erscheinen nicht in der Lobby',
-      },
-      pt: {
-        tagline: 'Tradução de voz em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
-        copied: 'Código copiado', copyFailed: 'Falha ao copiar — selecione manualmente',
-        nameLabel: 'Seu nome (opcional)', namePlaceholder: 'Convidado',
-        langLabel: 'Seu idioma', connect: 'Entrar', enterRoom: 'Insira um código de sala',
-        micDenied: 'Acesso ao microfone negado', recNotSupported: 'Gravação não suportada neste navegador',
-        connecting: 'Conectando…', disconnect: 'Sair', autoTts: 'Ler traduções em voz alta',
-        voiceLabel: 'Voz', voiceAuto: 'Automática (conforme o idioma)', waiting: 'Aguardando voz…',
-        tapStart: 'Toque para falar', tapStop: 'Ouvindo… toque para parar',
-        holdTalk: 'Segure para falar', releaseStop: 'Solte para parar', pttMode: 'Pressione para falar (segurar)',
-        you: 'Você', connectionLost: 'Conexão perdida — reconectando…',
-        createOrJoin: 'Criar ou entrar em uma sala', visibility: 'Visibilidade', public: 'Pública', private: 'Privada',
-        publicRooms: 'Salas públicas online', noPublicRooms: 'Ainda não há salas públicas — crie uma!',
-        refresh: 'Atualizar', privateHint: 'Salas privadas não aparecem no lobby',
-      },
-      ja: {
-        tagline: 'リアルタイム音声翻訳', roomCode: 'ルームコード', copy: 'コピー',
-        copied: 'コードをコピーしました', copyFailed: 'コピーに失敗しました — 手動で選択してください',
-        nameLabel: 'あなたの名前（任意）', namePlaceholder: 'ゲスト',
-        langLabel: 'あなたの言語', connect: '参加', enterRoom: 'ルームコードを入力してください',
-        micDenied: 'マイクへのアクセスが拒否されました', recNotSupported: 'このブラウザは録音に対応していません',
-        connecting: '接続中…', disconnect: '退出', autoTts: '翻訳を自動で読み上げる',
-        voiceLabel: '音声', voiceAuto: '自動（言語に合わせる）', waiting: '音声を待っています…',
-        tapStart: 'タップして話す', tapStop: '聞いています… タップして停止',
-        holdTalk: '押している間だけ話す', releaseStop: '離して停止', pttMode: 'プッシュ・トゥ・トーク（長押し）',
-        you: 'あなた', connectionLost: '接続が切れました — 再接続中…',
-        createOrJoin: 'ルームを作成または参加', visibility: '公開設定', public: '公開', private: '非公開',
-        publicRooms: '公開ルーム（オンライン）', noPublicRooms: '公開ルームはまだありません — 作成しましょう！',
-        refresh: '更新', privateHint: '非公開ルームはロビーに表示されません',
-      },
-      zh: {
-        tagline: '实时语音翻译', roomCode: '房间代码', copy: '复制',
-        copied: '代码已复制', copyFailed: '复制失败 — 请手动选择',
-        nameLabel: '你的名字（可选）', namePlaceholder: '访客',
-        langLabel: '你的语言', connect: '加入', enterRoom: '请输入房间代码',
-        micDenied: '麦克风访问被拒绝', recNotSupported: '此浏览器不支持录音',
-        connecting: '连接中…', disconnect: '离开', autoTts: '自动朗读翻译',
-        voiceLabel: '语音', voiceAuto: '自动（匹配语言）', waiting: '等待语音…',
-        tapStart: '点按开始说话', tapStop: '正在聆听… 点按停止',
-        holdTalk: '按住说话', releaseStop: '松开停止', pttMode: '按住说话',
-        you: '你', connectionLost: '连接断开 — 正在重连…',
-        createOrJoin: '创建或加入房间', visibility: '可见性', public: '公开', private: '私密',
-        publicRooms: '在线公开房间', noPublicRooms: '还没有公开房间 — 创建一个吧！',
-        refresh: '刷新', privateHint: '私密房间不会显示在大厅中',
-      },
-    };
-
-    function detectLang() {
-      const nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
-      return SUPPORTED.includes(nav) ? nav : 'en';
-    }
-    let uiLang = detectLang();
-    const t = (key) => (I18N[uiLang] && I18N[uiLang][key]) || I18N.en[key] || key;
-
-    function applyI18n() {
-      document.documentElement.lang = uiLang;
-      document.querySelectorAll('[data-i18n]').forEach((el) => {
-        el.textContent = t(el.getAttribute('data-i18n'));
-      });
-      document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
-        el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
-      });
-      updateVisHint();
-    }
-
-    // ====================================================================
-    // Config + DOM
-    // ====================================================================
-    const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
-    const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
-    const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
-
-    const $ = (id) => document.getElementById(id);
-    const homeScreen = $('home');
-    const sessionScreen = $('session');
-    const roomInput = $('room');
-    const nameInput = $('name');
-    const langSel = $('lang');
-    const enterBtn = $('enter');
-    const homeStatus = $('home-status');
-    const visGroup = $('vis-group');
-    const visHint = $('vis-hint');
-    const roomsList = $('rooms-list');
-    const micBtn = $('mic');
-    const micHint = $('mic-hint');
-    const pttMode = $('ptt-mode');
-    const autoTtsEl = $('auto-tts');
-    const voiceSelect = $('voice-select');
-    const logEl = $('log');
-    const connDot = $('conn-dot');
-    const roomBadge = $('room-badge');
-    const visBadge = $('vis-badge');
-    const myLangEl = $('my-lang');
-
-    // ====================================================================
-    // State
-    // ====================================================================
-    const myId =
-      (crypto && crypto.randomUUID && crypto.randomUUID()) ||
-      `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-    let ws = null;
-    let stream = null;
-    let recorder = null;
-    let isRecording = false;
-    let interimEl = null;
-    let manualClose = false;
-    let reconnectTimer = null;
-    let lobbyTimer = null;
-    let visibilityPublic = true; // segmented control state
-    let session = null; // { room, lang, name, isPublic }
-
-    // ====================================================================
-    // Home screen
-    // ====================================================================
-    function randomRoom() {
-      const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
-      let s = '';
-      for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-      return s;
-    }
-    roomInput.value = randomRoom();
-    $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
-
-    // UI language follows the chosen language; default from the browser.
-    langSel.value = uiLang;
-    applyI18n();
-    langSel.addEventListener('change', () => {
-      if (SUPPORTED.includes(langSel.value)) {
-        uiLang = langSel.value;
-        applyI18n();
-      }
-    });
-
-    function updateVisHint() {
-      visHint.textContent = visibilityPublic ? '' : t('privateHint');
-    }
-    visGroup.addEventListener('click', (e) => {
-      const btn = e.target.closest('.seg-btn');
-      if (!btn) return;
-      visibilityPublic = btn.dataset.vis === 'public';
-      visGroup.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
-      updateVisHint();
-    });
-
-    function flashStatus(msg, isError = false) {
-      homeStatus.textContent = msg;
-      homeStatus.classList.toggle('error', isError);
-    }
-
-    enterBtn.addEventListener('click', () => {
-      const room = roomInput.value.trim().toLowerCase();
-      if (!room) return flashStatus(t('enterRoom'), true);
-      joinRoom(room, visibilityPublic);
-    });
-
-    function joinRoom(room, isPublic) {
-      session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic: !!isPublic };
-      startSession();
-    }
-
-    // ---- Lobby polling ----
-    async function fetchRooms() {
-      try {
-        const res = await fetch(`${HTTP_BASE}/rooms`, { cache: 'no-store' });
-        const data = await res.json();
-        renderRooms(data.rooms || []);
-      } catch {
-        /* keep last render on transient errors */
-      }
-    }
-
-    function renderRooms(rooms) {
-      roomsList.innerHTML = '';
-      if (!rooms.length) {
-        const empty = document.createElement('div');
-        empty.className = 'lobby-empty';
-        empty.textContent = t('noPublicRooms');
-        roomsList.appendChild(empty);
-        return;
-      }
-      for (const r of rooms) {
-        const item = document.createElement('button');
-        item.className = 'room-item';
-        item.type = 'button';
-
-        const main = document.createElement('div');
-        main.className = 'room-item-main';
-        const code = document.createElement('span');
-        code.className = 'room-item-code';
-        code.textContent = r.room;
-        const count = document.createElement('span');
-        count.className = 'room-item-count';
-        count.textContent = `👤 ${r.count}`;
-        main.append(code, count);
-
-        const members = document.createElement('div');
-        members.className = 'room-item-members';
-        for (const m of r.participants) {
-          const chip = document.createElement('span');
-          chip.className = 'chip';
-          chip.textContent = `${FLAG[m.lang] || ''} ${m.name}`.trim();
-          members.appendChild(chip);
-        }
-
-        item.append(main, members);
-        item.addEventListener('click', () => joinRoom(r.room, true));
-        roomsList.appendChild(item);
-      }
-    }
-
-    function startLobby() {
-      fetchRooms();
-      if (!lobbyTimer) lobbyTimer = setInterval(fetchRooms, 3000);
-    }
-    function stopLobby() {
-      if (lobbyTimer) {
-        clearInterval(lobbyTimer);
-        lobbyTimer = null;
-      }
-    }
-    $('refresh').addEventListener('click', fetchRooms);
-
-    // ====================================================================
-    // Session lifecycle
-    // ====================================================================
-    async function startSession() {
-      enterBtn.disabled = true;
-      flashStatus(t('connecting'));
-
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-      } catch {
-        enterBtn.disabled = false;
-        return flashStatus(t('micDenied'), true);
-      }
-
-      manualClose = false;
-      stopLobby();
-      openSocket();
-      showSession();
-      enterBtn.disabled = false;
-    }
-
-    function openSocket() {
-      const params = new URLSearchParams({
-        room: session.room,
-        lang: session.lang,
-        id: myId,
-        public: String(session.isPublic),
-      });
-      if (session.name) params.set('name', session.name);
-      ws = new WebSocket(`${WS_BASE}/ws?${params}`);
-
-      ws.onopen = () => {
-        connDot.classList.add('connected');
-        flashStatus('');
-      };
-      ws.onmessage = (e) => {
-        try {
-          handleMessage(JSON.parse(e.data));
-        } catch {
-          /* ignore malformed frames */
-        }
-      };
-      ws.onclose = (e) => {
-        connDot.classList.remove('connected');
-        if (!manualClose && e.code !== 1000) scheduleReconnect();
-      };
-      ws.onerror = () => connDot.classList.remove('connected');
-    }
-
-    function scheduleReconnect() {
-      if (reconnectTimer) return;
-      appendMessage({ kind: 'error', text: t('connectionLost') });
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        if (!manualClose) openSocket();
-      }, 2000);
-    }
-
-    function showSession() {
-      homeScreen.classList.add('hidden');
-      sessionScreen.classList.remove('hidden');
-      roomBadge.textContent = session.room;
-      visBadge.textContent = session.isPublic ? t('public') : t('private');
-      myLangEl.textContent = ENDONYM[session.lang] || session.lang.toUpperCase();
-      logEl.innerHTML = `<p class="log-empty">${t('waiting')}</p>`;
-      interimEl = null;
-      micHint.textContent = pttMode.checked ? t('holdTalk') : t('tapStart');
-      loadVoices();
-    }
-
-    roomBadge.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(roomBadge.textContent.trim());
-        const prev = visBadge.textContent;
-        visBadge.textContent = t('copied');
-        setTimeout(() => (visBadge.textContent = session.isPublic ? t('public') : t('private')), 1200);
-        void prev;
-      } catch {
-        /* ignore */
-      }
-    });
-
-    $('disconnect').addEventListener('click', endSession);
-
-    function endSession() {
-      manualClose = true;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      stopRecording();
-      recorder = null;
-      if (stream) {
-        stream.getTracks().forEach((tr) => tr.stop());
-        stream = null;
-      }
-      if (ws) {
-        ws.close(1000, 'user disconnect');
-        ws = null;
-      }
-      if (window.speechSynthesis) speechSynthesis.cancel();
-      sessionScreen.classList.add('hidden');
-      homeScreen.classList.remove('hidden');
-      roomInput.value = randomRoom();
-      flashStatus('');
-      startLobby();
-    }
-
-    // ====================================================================
-    // Speaking: audio capture + start/stop control frames
-    // ====================================================================
-    function sendControl(type) {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type }));
-    }
-
-    function startRecording() {
-      if (isRecording || !stream) return;
-      const mime = 'audio/webm;codecs=opus';
-      try {
-        recorder = new MediaRecorder(stream, {
-          mimeType: MediaRecorder.isTypeSupported(mime) ? mime : 'audio/webm',
-          audioBitsPerSecond: 32000,
-        });
-      } catch {
-        flashStatus(t('recNotSupported'), true);
-        return;
-      }
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
-      };
-      recorder.onstop = () => sendControl('stop'); // after the final chunk
-      sendControl('start'); // open Deepgram before audio flows
-      recorder.start(250);
-      isRecording = true;
-      micBtn.classList.add('recording');
-      micHint.textContent = pttMode.checked ? t('releaseStop') : t('tapStop');
-    }
-
-    function stopRecording() {
-      if (recorder && recorder.state !== 'inactive') recorder.stop();
-      isRecording = false;
-      micBtn.classList.remove('recording');
-      micHint.textContent = pttMode.checked ? t('holdTalk') : t('tapStart');
-    }
-
-    micBtn.addEventListener('pointerdown', (e) => {
-      if (pttMode.checked) {
-        e.preventDefault();
-        startRecording();
-      }
-    });
-    micBtn.addEventListener('pointerup', () => {
-      if (pttMode.checked) stopRecording();
-    });
-    micBtn.addEventListener('pointerleave', () => {
-      if (pttMode.checked && isRecording) stopRecording();
-    });
-    micBtn.addEventListener('click', () => {
-      if (!pttMode.checked) (isRecording ? stopRecording() : startRecording());
-    });
-    pttMode.addEventListener('change', () => {
-      stopRecording();
-      micHint.textContent = pttMode.checked ? t('holdTalk') : t('tapStart');
-    });
-
-    // ====================================================================
-    // Incoming messages
-    // ====================================================================
-    function handleMessage(data) {
-      const empty = logEl.querySelector('.log-empty');
-      if (empty) empty.remove();
-      const isOwn = data.from_id === myId;
-
-      switch (data.type) {
-        case 'interim':
-          if (!interimEl) {
-            interimEl = document.createElement('div');
-            interimEl.className = 'msg msg-interim';
-            logEl.appendChild(interimEl);
-          }
-          interimEl.textContent = data.text;
-          scrollLog();
-          break;
-
-        case 'transcript':
-          if (isOwn) {
-            if (interimEl) {
-              interimEl.remove();
-              interimEl = null;
-            }
-            appendMessage({ kind: 'own', name: t('you'), text: data.text });
-          } else {
-            appendMessage({ kind: 'incoming', name: data.from, text: data.text });
-            if (autoTtsEl.checked) speak(data.text, data.lang);
-          }
-          break;
-
-        case 'translation':
-          appendMessage({ kind: 'translated', name: data.from, text: data.translated });
-          if (autoTtsEl.checked) speak(data.translated, data.target_lang);
-          break;
-
-        case 'error':
-          appendMessage({ kind: 'error', text: data.message });
-          break;
-      }
-    }
-
-    function appendMessage({ kind, name, text }) {
-      const div = document.createElement('div');
-      div.className = `msg msg-${kind}`;
-      if (name) {
-        const who = document.createElement('div');
-        who.className = 'msg-from';
-        who.textContent = name;
-        div.appendChild(who);
-      }
-      const body = document.createElement('div');
-      body.textContent = text;
-      div.appendChild(body);
-      logEl.appendChild(div);
-      scrollLog();
-    }
-
-    function scrollLog() {
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    // ====================================================================
-    // TTS
-    // ====================================================================
-    function loadVoices() {
-      if (!window.speechSynthesis) return;
-      const fill = () => {
-        const voices = speechSynthesis.getVoices();
-        voiceSelect.innerHTML = `<option value="-1">${t('voiceAuto')}</option>`;
-        voices.forEach((v, i) => {
-          const opt = document.createElement('option');
-          opt.value = String(i);
-          opt.textContent = `${v.name} (${v.lang})`;
-          voiceSelect.appendChild(opt);
-        });
-      };
-      fill();
-      speechSynthesis.onvoiceschanged = fill;
-    }
-
-    function speak(text, lang) {
-      if (!window.speechSynthesis) return;
-      speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      const voices = speechSynthesis.getVoices();
-      const idx = parseInt(voiceSelect.value, 10);
-      if (idx >= 0 && voices[idx]) {
-        utter.voice = voices[idx];
-      } else if (lang) {
-        const match = voices.find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
-        if (match) utter.voice = match;
-      }
-      utter.lang = lang || 'en';
-      utter.rate = 1.1;
-      speechSynthesis.speak(utter);
-    }
-
-    if (window.speechSynthesis) speechSynthesis.getVoices(); // prime async voice list
-
-    // ====================================================================
-    // Boot
-    // ====================================================================
-    startLobby();
+    import '../scripts/app.ts';
   </script>
 </Base>

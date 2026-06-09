@@ -1,30 +1,32 @@
 # VoxTranslate
 
-Real-time, multilingual voice translation rooms. Everyone in a room **speaks and
-listens** in their own language — each person's speech is transcribed and
-translated into every other participant's language in parallel, then spoken aloud.
+Real-time **translated video calls**. Up to 4 people talk face-to-face over P2P
+WebRTC, each in their own language — speech is transcribed, translated into every
+participant's language in parallel, and shown as live subtitles on each speaker's
+video. Includes an auto-translated text chat.
 
 ```
-Each participant (browser)
-  ├─ mic → MediaRecorder (webm/opus, 250ms) ──binary WS──► Axum server
-  │                                                          └─► per-speaker Deepgram WS (STT)
-  │                                                                 │ interim → back to speaker
-  │                                                                 │ final → Groq translate (per target lang, in parallel)
-  └─ ◄──── JSON text frames ───────────────────────────────────────┘
-         transcript (own language) + translation (your language) → SpeechSynthesis TTS
+Each peer (browser)
+  ├─ camera + mic ──► WebRTC mesh ──► other peers hear/see you directly (P2P)
+  └─ same mic track ──► MediaRecorder (webm/opus, 250ms) ──binary WS──► Axum server
+                                                                          └─► per-speaker Deepgram WS (STT)
+                                                                                 interim → subtitle_interim (broadcast)
+                                                                                 final  → Groq fan-out → subtitle_final
+                                                                                          { it, en, es… } → each peer picks its lang
+  WebRTC signaling (offer/answer/ice) and chat are relayed by the server.
 ```
 
 ## Features
 
-- 🎙️ **Symmetric rooms** — every participant can talk and hear; no speaker/listener roles.
-- 🌍 **Per-recipient translation** — N people, N languages; each utterance is translated
-  into every other language in the room **in parallel**.
-- 🏠 **Lobby** — public rooms list their online members; tap to join. Rooms can be
-  **public** (listed) or **private** (join by code only).
-- 🗣️ **Auto TTS** — translations are spoken via the browser `SpeechSynthesis` API.
-- 🌐 **Localized UI** — interface in all 8 supported languages, auto-detected from the
-  browser (fallback English), following your chosen language.
-- 📱 **Mobile-first** — responsive, large tap targets, push-to-talk or toggle.
+- 📹 **P2P video calls** — WebRTC full mesh, up to 4 peers (server never touches media).
+- 🌍 **Live translated subtitles** — each utterance is transcribed and translated into
+  every language in the room **in parallel**, shown on the speaker's video cell in your language.
+- 💬 **Auto-translated chat** — messages arrive in your language, original shown below.
+- 🎚️ **Controls** — mute mic, camera on/off, speak-translations (TTS), chat, leave.
+- 🏠 **Lobby** — public rooms list their online members; tap to join. Rooms can be public or private.
+- 🎛️ **Pre-join** — camera preview + camera/mic device selectors before entering.
+- 🌐 **Localized UI** — all 8 supported languages, auto-detected from the browser (fallback English).
+- 📱 **Mobile-first** — responsive video grid, chat as a bottom-sheet drawer.
 
 Supported languages: Italian, English, Spanish, French, German, Portuguese, Japanese, Chinese.
 
@@ -32,43 +34,34 @@ Supported languages: Italian, English, Spanish, French, German, Portuguese, Japa
 
 | Layer        | Tech                                                        |
 |--------------|------------------------------------------------------------|
-| Backend      | Rust — Axum 0.8 + Tokio (WebSocket relay)                   |
+| Backend      | Rust — Axum 0.8 + Tokio (WS relay + signaling)             |
+| Video/Audio  | WebRTC mesh (P2P), STUN-only                                |
 | STT          | Deepgram Nova-2 streaming WebSocket                         |
-| Translation  | Groq `llama-3.1-8b-instant`                                 |
-| Frontend     | Astro 5, vanilla JS (no framework islands)                 |
-| TTS          | Browser `SpeechSynthesis` API (client-side, zero cost)     |
-| Audio        | Opus / WebM, 32 kbps mono, 250 ms chunks                   |
+| Translation  | Groq `llama-3.1-8b-instant` (parallel fan-out)             |
+| Frontend     | Astro 5 + vanilla TypeScript modules (`src/scripts/`)      |
+| TTS          | Browser `SpeechSynthesis` API                              |
 
-Audio is **never buffered on the server** — chunks are piped straight to a per-speaker
-Deepgram WebSocket. Rooms are ephemeral (in-memory `DashMap`, no DB).
+Audio/video flows **peer-to-peer**; the server only relays signaling, runs STT, fans
+out translations, and relays chat. Rooms are ephemeral (in-memory `DashMap`, no DB).
 
-## How it works
+## Protocol
 
-Every participant opens one WebSocket and both sends audio and receives messages:
+Peers connect to `GET /ws?room=..&lang=..&name=..&id=..&public=..` and exchange JSON
+text frames (audio is sent as binary frames):
 
-- `GET /ws?room=..&lang=..&name=..&id=..&public=..` — `lang` is the single language you
-  speak and receive in. `public=true` makes a newly-created room appear in the lobby.
-- Speaking is bracketed by `{"type":"start"}` / `{"type":"stop"}` text frames; each
-  session opens a fresh Deepgram connection (clean WebM stream).
-- On a **final** transcript the server sends the original to everyone sharing the
-  speaker's language, and spawns one Groq translation **per distinct other language**,
-  delivered to that language's participants.
-- `GET /rooms` — lobby: public rooms with their online members (polled by the home screen).
-- `GET /health` — health check.
+- **Client → server:** `start` / `stop` (speaking session), `offer` / `answer` / `ice`
+  (WebRTC, relayed to `to`), `chat`, `mute_audio` / `mute_video`.
+- **Server → client:** `room_joined` (your id + existing peers), `peer_joined`,
+  `peer_left`, `room_full`, relayed `offer` / `answer` / `ice` (with `from`),
+  `chat_message` (with a `translations` map), `peer_muted`, `subtitle_interim`,
+  `subtitle_final` (with a `translations` map).
+- `GET /rooms` — lobby (public rooms + online members). `GET /health` — health check.
 
-Server → client messages (JSON text frames), each speech message tagged with `from` / `from_id`:
-
-```jsonc
-{ "type": "interim",     "from": "Alice", "from_id": "…", "text": "…", "lang": "it" }
-{ "type": "transcript",  "from": "Alice", "from_id": "…", "text": "…", "lang": "it" }
-{ "type": "translation", "from": "Alice", "from_id": "…", "original": "…",
-  "translated": "…", "source_lang": "it", "target_lang": "en" }
-{ "type": "error",       "message": "…" }
-```
+Existing peers initiate the WebRTC offer toward a newcomer (avoids offer glare).
 
 ## Prerequisites
 
-- Rust (stable) and Cargo · Node 18+ and npm
+- Rust (stable) + Cargo · Node 18+ + npm
 - API keys: **`DEEPGRAM_API_KEY`** (Nova-2 STT) and **`GROQ_API_KEY`** (Llama translation)
 
 ## Run locally
@@ -77,79 +70,52 @@ Server → client messages (JSON text frames), each speech message tagged with `
 cp server/.env.example server/.env     # add your keys
 ```
 
-**Terminal 1 — server (port 3001):**
+**Server (port 3001):** `cd server && cargo run`
 
-```bash
-cd server && cargo run
-```
-
-**Terminal 2 — client (port 4321):**
-
-```bash
-cd client && npm install
-PUBLIC_WS_HOST=localhost:3001 npm run dev
-```
+**Client (port 4321):** `cd client && npm install && PUBLIC_WS_HOST=localhost:3001 npm run dev`
 
 Open **http://localhost:4321** in two tabs (or two devices on your LAN), pick a language
-in each, join the same room, and talk. `PUBLIC_WS_HOST` tells the client where the
-WebSocket server is.
+in each, join the same room, and you're on a translated call.
 
-> **Mic note:** `getUserMedia` needs a secure context. `localhost` is exempt; for
-> LAN/remote use HTTPS.
+> **HTTPS:** `getUserMedia` and WebRTC need a secure context. `localhost` is exempt for
+> dev; use HTTPS for LAN/remote.
 
 ## Run with Docker
 
 ```bash
-cp server/.env.example server/.env     # add your keys
-docker compose up --build
+cp server/.env.example server/.env
+docker compose up --build       # client :4321 · server :3001
 ```
-
-Client → http://localhost:4321 · Server → ws://localhost:3001/ws
 
 ## Deploy (production, autodeploy on `main`)
 
-The frontend and backend deploy separately — Vercel is serverless and **cannot host a
-persistent WebSocket server**, so the Rust relay runs on a WS-capable host (Railway).
+Frontend and backend deploy separately — Vercel is serverless and **cannot host the
+persistent WebSocket relay**, so the Rust server runs on Railway.
 
 ### Backend → Railway
-
-1. New Project → Deploy from GitHub repo → pick this repo.
-2. In the service settings, set **Root Directory = `server`** (it picks up
-   `server/Dockerfile` + `server/railway.toml`, with a `/health` healthcheck).
-3. Add variables: `DEEPGRAM_API_KEY`, `GROQ_API_KEY`. Railway injects `PORT` automatically.
-4. Deploy, then copy the public domain (e.g. `voxtranslate-server-production.up.railway.app`).
-
-Pushes to `main` auto-deploy the backend.
+1. New Project → Deploy from GitHub → this repo. Service **Root Directory = `server`**
+   (uses `server/Dockerfile` + `server/railway.toml`, `/health` healthcheck).
+2. Variables: `DEEPGRAM_API_KEY`, `GROQ_API_KEY` (Railway injects `PORT`).
+3. Deploy, copy the public domain.
 
 ### Frontend → Vercel
+1. Import this repo. **Root Directory = `client`** (Astro auto-detected).
+2. Env **`PUBLIC_WS_HOST`** = your Railway domain (host only, no protocol).
+3. Deploy.
 
-1. New Project → import this repo.
-2. Set **Root Directory = `client`** (Astro is auto-detected).
-3. Add environment variable **`PUBLIC_WS_HOST`** = your Railway domain (host only, no
-   protocol — e.g. `voxtranslate-server-production.up.railway.app`). It's inlined at build
-   time; the client uses `wss://`/`https://` automatically over HTTPS.
-4. Deploy.
+Pushes to `main` auto-deploy both.
 
-Pushes to `main` auto-deploy the frontend to production. (Vercel only creates preview
-deployments for other branches/PRs — none are needed here.)
-
-> Lock down `CorsLayer::permissive()` to your Vercel origin before going wide.
+> **Production WebRTC:** this uses STUN only (~85% of NATs connect). For reliable
+> connectivity across symmetric NATs, add a TURN server to the `ICE_SERVERS` list in
+> `client/src/scripts/webrtc.ts`. Also restrict `CorsLayer::permissive()` to your origin.
 
 ## Testing
 
-**Groq smoke test:**
+**Multi-party subtitle pipeline (no mic/camera)** — `scripts/pipeline-test.mjs` connects
+three peers (it/en/es), each speaks, and asserts the `subtitle_final` fan-out reaches
+everyone in their language:
 
 ```bash
-curl -X POST https://api.groq.com/openai/v1/chat/completions \
-  -H "Authorization: Bearer $GROQ_API_KEY" -H "Content-Type: application/json" \
-  -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"system","content":"Translate from Italian to English. Output ONLY the translation."},{"role":"user","content":"ciao come stai"}],"temperature":0.2}'
-```
-
-**Multi-party pipeline (no microphone)** — three participants (it/en/es), each speaks,
-each receives translations in their own language. See `scripts/pipeline-test.mjs`:
-
-```bash
-# generate samples (macOS)
 say -v Alice    -o it.aiff "Ciao a tutti, come va oggi?"
 say -v Samantha -o en.aiff "Hello everyone, how is it going today?"
 ffmpeg -y -i it.aiff -ac 1 -ar 16000 -c:a libopus -b:a 32k -f webm -live 1 it.webm
@@ -160,20 +126,22 @@ node scripts/pipeline-test.mjs it.webm en.webm
 ## Project layout
 
 ```
-server/   Rust/Axum WS relay — src/{main,config,protocol,rooms,deepgram,groq}.rs
-          Dockerfile · railway.toml · .env.example
-client/   Astro 5 SPA — src/pages/index.astro (UI + audio + WS + TTS + i18n + lobby)
-scripts/  pipeline-test.mjs (multi-party E2E harness)
-docker-compose.yml · LICENSE (MIT)
+server/   Rust/Axum relay
+  src/{main,config,protocol,rooms,deepgram,groq,translator}.rs
+  Dockerfile · railway.toml · .env.example
+client/   Astro 5 SPA
+  src/pages/index.astro          screens + styles
+  src/scripts/{app,webrtc,audio-capture,chat,i18n}.ts
+  src/layouts/Base.astro
+scripts/  pipeline-test.mjs · docker-compose.yml · LICENSE (MIT)
 ```
 
 ## Notes
 
-- **Deepgram input**: send `container=webm` only and let Deepgram auto-detect the Opus
-  encoding/sample rate from the WebM header (passing explicit `encoding`/`sample_rate`
-  breaks container demuxing). See `server/src/deepgram.rs`.
-- **Mic modes**: *toggle* (tap start/stop) keeps one continuous stream — most reliable;
-  *push-to-talk* (hold) restarts per press.
+- **Deepgram input**: send `container=webm` only and let Deepgram auto-detect Opus/sample
+  rate from the header (explicit `encoding`/`sample_rate` break container demuxing).
+- **Dual audio path**: the same mic track feeds WebRTC (peers hear you live) and a
+  MediaRecorder (server STT) — a MediaStreamTrack supports multiple consumers.
 - The Groq model id lives in `server/src/groq.rs`. Deepgram auth uses `Token <key>`, Groq `Bearer <key>`.
 
 ## License

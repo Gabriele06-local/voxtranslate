@@ -1,15 +1,18 @@
-//! VoxTranslate server — Axum WebSocket relay orchestrating Deepgram STT and
-//! Groq translation. Every participant is symmetric: they speak and listen, and
-//! the server translates each utterance into every other participant's language.
+//! VoxTranslate server — Axum WebSocket relay.
+//!
+//! V2: video-meeting model. The server relays WebRTC signaling between peers
+//! (pure passthrough), orchestrates per-speaker Deepgram STT with translation
+//! fan-out subtitles, and relays auto-translated chat. Rooms are capped at 4.
 
 mod config;
 mod deepgram;
 mod groq;
 mod protocol;
 mod rooms;
+mod translator;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
@@ -25,14 +28,15 @@ use uuid::Uuid;
 
 use crate::config::Config;
 use crate::groq::Groq;
-use crate::protocol::{ClientControl, RoomsResponse, ServerMessage, WsParams};
-use crate::rooms::{Participant, RoomManager, Visibility};
+use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
+use crate::rooms::{Peer, RoomManager, Visibility};
+use crate::translator::Translator;
 
 #[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
     rooms: Arc<RoomManager>,
-    groq: Groq,
+    translator: Translator,
 }
 
 #[tokio::main]
@@ -53,17 +57,17 @@ async fn main() {
         }
     };
 
-    let groq = Groq::new(config.groq_key.clone());
+    let translator = Translator::new(Groq::new(config.groq_key.clone()));
     let rooms = Arc::new(RoomManager::new());
     let port = config.port;
 
     let state = AppState {
         config,
         rooms: rooms.clone(),
-        groq,
+        translator,
     };
 
-    // Periodic cleanup of rooms whose participants have all disconnected.
+    // Periodic cleanup of rooms whose peers have all disconnected.
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(30));
         loop {
@@ -104,13 +108,9 @@ async fn ws_handler(
     State(state): State<AppState>,
 ) -> Response {
     if params.room.trim().is_empty() || params.lang.trim().is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            "missing room or lang",
-        )
-            .into_response();
+        return (axum::http::StatusCode::BAD_REQUEST, "missing room or lang").into_response();
     }
-    ws.on_upgrade(move |socket| handle_participant(socket, params, state))
+    ws.on_upgrade(move |socket| handle_peer(socket, params, state))
 }
 
 /// Lobby: list public rooms with their currently online participants.
@@ -120,13 +120,16 @@ async fn rooms_handler(State(state): State<AppState>) -> Json<RoomsResponse> {
     })
 }
 
-/// A participant both speaks and listens over one WebSocket:
-/// - binary frames are audio for the current speaking session,
-/// - `{"type":"start"}` / `{"type":"stop"}` text frames bracket a session,
-///   opening/closing a fresh per-session Deepgram connection,
-/// - the participant's own channel (registered in the room) receives the
-///   transcripts/translations routed to its language.
-async fn handle_participant(socket: WebSocket, params: WsParams, state: AppState) {
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// A peer's WebSocket: receives audio (binary) + control/signaling/chat (text),
+/// and is sent room lifecycle, relayed signaling, subtitles, chat, and peer state.
+async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let WsParams {
         room,
         lang,
@@ -146,26 +149,53 @@ async fn handle_participant(socket: WebSocket, params: WsParams, state: AppState
         Visibility::Private
     };
 
-    tracing::info!(%room, %name, %lang, ?visibility, "participant joined");
+    let (mut ws_tx, mut ws_rx) = socket.split();
 
-    let (ws_tx, mut ws_rx) = socket.split();
-
-    // Outgoing channel: server -> this participant's WS (text frames).
+    // Outgoing channel: server -> this peer's WS (text frames).
     let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
-    state.rooms.join(
-        &room,
-        Participant {
-            id: id.clone(),
-            name: name.clone(),
-            lang: lang.clone(),
-            tx: out_tx,
-        },
-        visibility,
+    let peer = Peer {
+        id: id.clone(),
+        name: name.clone(),
+        lang: lang.clone(),
+        tx: out_tx.clone(),
+    };
+
+    let existing = match state.rooms.join(&room, peer, visibility) {
+        Ok(existing) => existing,
+        Err(()) => {
+            // Room full — tell the peer directly and close.
+            let _ = ws_tx
+                .send(Message::Text(ServerMessage::RoomFull.to_json().into()))
+                .await;
+            let _ = ws_tx.close().await;
+            return;
+        }
+    };
+    tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
+
+    // Tell the new peer its id + the peers already present (it will connect to them).
+    let _ = out_tx.send(
+        ServerMessage::RoomJoined {
+            peer_id: id.clone(),
+            peers: existing,
+        }
+        .to_json(),
     );
+    // Tell the others a new peer arrived (they initiate the WebRTC offer).
+    state.rooms.broadcast_except(
+        &room,
+        &id,
+        &ServerMessage::PeerJoined {
+            peer_id: id.clone(),
+            user_name: name.clone(),
+            lang: lang.clone(),
+        }
+        .to_json(),
+    );
+
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
-    // Active speaking session: present (Some) only while the participant talks.
-    // Dropping the sender flushes (CloseStream) and ends the Deepgram session.
+    // Active speaking session (Some only while unmuted/talking).
     let mut audio_tx: Option<UnboundedSender<Vec<u8>>> = None;
 
     while let Some(Ok(msg)) = ws_rx.next().await {
@@ -175,33 +205,115 @@ async fn handle_participant(socket: WebSocket, params: WsParams, state: AppState
                     let _ = tx.send(data.to_vec());
                 }
             }
-            Message::Text(t) => match serde_json::from_str::<ClientControl>(t.as_str()) {
-                Ok(ClientControl::Start) => {
+            Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
+                Ok(ClientMessage::Start) => {
                     if audio_tx.is_none() {
-                        audio_tx =
-                            start_speaking_session(&state, &room, &id, &name, &lang).await;
+                        audio_tx = start_speaking_session(&state, &room, &id, &name, &lang).await;
                     }
                 }
-                Ok(ClientControl::Stop) => {
-                    // Drop the sender to flush finals and close Deepgram.
-                    audio_tx = None;
+                Ok(ClientMessage::Stop) => {
+                    audio_tx = None; // flush + close Deepgram
                 }
-                Err(_) => {} // unknown control frame — ignore
+                Ok(ClientMessage::Offer { to, sdp }) => {
+                    state.rooms.relay_to_peer(
+                        &room,
+                        &to,
+                        &ServerMessage::Offer { from: id.clone(), sdp }.to_json(),
+                    );
+                }
+                Ok(ClientMessage::Answer { to, sdp }) => {
+                    state.rooms.relay_to_peer(
+                        &room,
+                        &to,
+                        &ServerMessage::Answer { from: id.clone(), sdp }.to_json(),
+                    );
+                }
+                Ok(ClientMessage::Ice { to, candidate }) => {
+                    state.rooms.relay_to_peer(
+                        &room,
+                        &to,
+                        &ServerMessage::Ice {
+                            from: id.clone(),
+                            candidate,
+                        }
+                        .to_json(),
+                    );
+                }
+                Ok(ClientMessage::Chat { text }) => {
+                    handle_chat(&state, &room, &id, &name, &lang, text);
+                }
+                Ok(ClientMessage::MuteAudio { muted }) => {
+                    state.rooms.broadcast_except(
+                        &room,
+                        &id,
+                        &ServerMessage::PeerMuted {
+                            peer_id: id.clone(),
+                            kind: "audio".to_string(),
+                            muted,
+                        }
+                        .to_json(),
+                    );
+                }
+                Ok(ClientMessage::MuteVideo { muted }) => {
+                    state.rooms.broadcast_except(
+                        &room,
+                        &id,
+                        &ServerMessage::PeerMuted {
+                            peer_id: id.clone(),
+                            kind: "video".to_string(),
+                            muted,
+                        }
+                        .to_json(),
+                    );
+                }
+                Err(_) => {} // unknown / malformed control frame
             },
             Message::Close(_) => break,
             _ => {}
         }
     }
 
-    tracing::info!(%room, %name, "participant left");
+    tracing::info!(%room, %name, "peer left");
     drop(audio_tx); // flush any active speaking session
     state.rooms.remove(&room, &id);
+    state
+        .rooms
+        .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
     send_task.abort();
 }
 
+/// Translate a chat message into every language in the room (parallel) and
+/// broadcast it to everyone, including the sender.
+fn handle_chat(state: &AppState, room: &str, id: &str, name: &str, lang: &str, text: String) {
+    let rooms = state.rooms.clone();
+    let translator = state.translator.clone();
+    let room = room.to_string();
+    let sender_id = id.to_string();
+    let sender_name = name.to_string();
+    let sender_lang = lang.to_string();
+    let timestamp = now_unix();
+    tokio::spawn(async move {
+        let targets = rooms.get_room_languages(&room, &sender_id);
+        let translations = translator
+            .translate_fanout(&text, &sender_lang, &targets)
+            .await;
+        rooms.broadcast(
+            &room,
+            &ServerMessage::ChatMessage {
+                sender_id,
+                sender_name,
+                sender_lang,
+                original: text,
+                translations,
+                timestamp,
+            }
+            .to_json(),
+        );
+    });
+}
+
 /// Open a fresh Deepgram connection for one speaking session and spawn the audio
-/// forwarder + transcript router. Returns the audio sender, or `None` on failure
-/// (after notifying the participant).
+/// forwarder + subtitle router. Returns the audio sender, or `None` on failure.
 async fn start_speaking_session(
     state: &AppState,
     room: &str,
@@ -216,7 +328,7 @@ async fn start_speaking_session(
             tokio::spawn(deepgram::process_transcripts(
                 dg_source,
                 state.rooms.clone(),
-                state.groq.clone(),
+                state.translator.clone(),
                 room.to_string(),
                 id.to_string(),
                 name.to_string(),
@@ -226,7 +338,7 @@ async fn start_speaking_session(
         }
         Err(e) => {
             tracing::error!("deepgram open failed: {e}");
-            state.rooms.send_to_id(
+            state.rooms.relay_to_peer(
                 room,
                 id,
                 &ServerMessage::Error {

@@ -19,9 +19,9 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 use crate::config::Config;
-use crate::groq::Groq;
 use crate::protocol::{DeepgramResponse, ServerMessage};
 use crate::rooms::RoomManager;
+use crate::translator::Translator;
 
 type DgStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type DgSink = SplitSink<DgStream, Message>;
@@ -98,16 +98,16 @@ pub async fn forward_audio(mut audio_rx: UnboundedReceiver<Vec<u8>>, mut sink: D
     }
 }
 
-/// Read Deepgram transcripts for one speaking session and route them:
-/// - interim → only back to the speaker (live self-feedback),
-/// - final → the original transcript to everyone sharing the speaker's language,
-///   plus one translation per distinct other-language (spawned in parallel),
-///   sent to the participants of each target language.
+/// Read Deepgram transcripts for one speaking session and broadcast subtitles to
+/// the whole room so each peer can render them on the speaker's video cell:
+/// - interim → `subtitle_interim` (original language, live),
+/// - final → translated into every language present (fan-out), broadcast as
+///   `subtitle_final` with a `{ lang: text }` map; each client picks its own.
 #[allow(clippy::too_many_arguments)]
 pub async fn process_transcripts(
     mut source: DgSource,
     rooms: Arc<RoomManager>,
-    groq: Groq,
+    translator: Translator,
     room: String,
     speaker_id: String,
     speaker_name: String,
@@ -137,13 +137,12 @@ pub async fn process_transcripts(
         }
 
         if !parsed.is_final {
-            // Interim preview goes only to the speaker themselves.
-            rooms.send_to_id(
+            // Live partial subtitle, shown (untranslated) on the speaker's cell.
+            rooms.broadcast(
                 &room,
-                &speaker_id,
-                &ServerMessage::Interim {
-                    from: speaker_name.clone(),
-                    from_id: speaker_id.clone(),
+                &ServerMessage::SubtitleInterim {
+                    speaker_id: speaker_id.clone(),
+                    speaker_name: speaker_name.clone(),
                     text: transcript.to_string(),
                     lang: speaker_lang.clone(),
                 }
@@ -154,57 +153,30 @@ pub async fn process_transcripts(
 
         let transcript = transcript.to_string();
 
-        // 1) Original transcript to everyone who shares the speaker's language
-        //    (including the speaker, for confirmation).
-        rooms.send_to_lang(
-            &room,
-            &speaker_lang,
-            &ServerMessage::Transcript {
-                from: speaker_name.clone(),
-                from_id: speaker_id.clone(),
-                text: transcript.clone(),
-                lang: speaker_lang.clone(),
-            }
-            .to_json(),
-        );
-
-        // 2) One translation per distinct other-language, in parallel.
-        for target in rooms.other_langs(&room, &speaker_lang) {
-            let rooms = rooms.clone();
-            let groq = groq.clone();
-            let room = room.clone();
-            let speaker_name = speaker_name.clone();
-            let speaker_id = speaker_id.clone();
-            let speaker_lang = speaker_lang.clone();
-            let transcript = transcript.clone();
-            tokio::spawn(async move {
-                match groq.translate(&transcript, &speaker_lang, &target).await {
-                    Ok(translated) => rooms.send_to_lang(
-                        &room,
-                        &target,
-                        &ServerMessage::Translation {
-                            from: speaker_name,
-                            from_id: speaker_id,
-                            original: transcript,
-                            translated,
-                            source_lang: speaker_lang,
-                            target_lang: target.clone(),
-                        }
-                        .to_json(),
-                    ),
-                    Err(e) => {
-                        tracing::warn!("translation failed: {e}");
-                        rooms.send_to_lang(
-                            &room,
-                            &target,
-                            &ServerMessage::Error {
-                                message: "translation failed".to_string(),
-                            }
-                            .to_json(),
-                        );
-                    }
+        // Fan out a translation per distinct language in the room, then broadcast
+        // the final subtitle with the full map so every peer picks its language.
+        let rooms = rooms.clone();
+        let translator = translator.clone();
+        let room = room.clone();
+        let speaker_id = speaker_id.clone();
+        let speaker_name = speaker_name.clone();
+        let speaker_lang = speaker_lang.clone();
+        tokio::spawn(async move {
+            let target_langs = rooms.get_room_languages(&room, &speaker_id);
+            let translations = translator
+                .translate_fanout(&transcript, &speaker_lang, &target_langs)
+                .await;
+            rooms.broadcast(
+                &room,
+                &ServerMessage::SubtitleFinal {
+                    speaker_id,
+                    speaker_name,
+                    original: transcript,
+                    lang: speaker_lang,
+                    translations,
                 }
-            });
-        }
+                .to_json(),
+            );
+        });
     }
 }

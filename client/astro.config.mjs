@@ -6,4 +6,6 @@ export default defineConfig({
     port: 4321,
     host: true,
   },
+  // The floating dev toolbar overlaps the bottom control bar; not shipped in builds.
+  devToolbar: { enabled: false },
 });

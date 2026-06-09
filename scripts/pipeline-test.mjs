@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Multi-party end-to-end pipeline test (no microphone).
+// Multi-party subtitle pipeline test (no microphone, no video).
 //
-// Connects several symmetric participants, each in a different language, then
-// has them speak in turn by streaming a pre-recorded webm/opus file. Verifies
-// that every other participant receives the utterance translated into THEIR
-// language (in parallel), while same-language peers receive the transcript.
+// Connects several peers, each in a different language, then has them speak by
+// streaming a pre-recorded webm/opus file. Verifies the server broadcasts a
+// `subtitle_final` with a `translations` map covering every language in the room
+// (translated in parallel) so each peer can render its own language.
 //
 // Usage:
 //   node scripts/pipeline-test.mjs <it.webm> [en.webm]
@@ -28,22 +28,23 @@ if (!itFile) {
   process.exit(2);
 }
 
-class Participant {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+class Peer {
   constructor(name, lang) {
     this.name = name;
     this.lang = lang;
     this.id = `${name.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`;
-    this.received = []; // { type, from, from_id, text, target_lang, lang }
+    this.finals = []; // subtitle_final messages received
   }
   connect() {
-    const p = new URLSearchParams({ room, lang: this.lang, id: this.id, name: this.name });
+    const p = new URLSearchParams({ room, lang: this.lang, id: this.id, name: this.name, public: 'true' });
     this.ws = new WebSocket(`ws://${WS_HOST}/ws?${p}`);
     this.ws.binaryType = 'arraybuffer';
     this.ws.onmessage = (e) => {
       let m;
       try { m = JSON.parse(e.data); } catch { return; }
-      if (m.type === 'interim') return; // self-feedback, noisy
-      this.received.push(m);
+      if (m.type === 'subtitle_final') this.finals.push(m);
     };
     return new Promise((res, rej) => {
       this.ws.onopen = () => res(this);
@@ -56,73 +57,52 @@ class Participant {
     await sleep(150);
     for (let off = 0; off < audio.length; off += 1024) {
       this.ws.send(audio.subarray(off, off + 1024));
-      await sleep(200); // ~mimic MediaRecorder 250ms live cadence
+      await sleep(200);
     }
-    await sleep(2500); // let Deepgram finalize the last segment
+    await sleep(2500);
     this.ws.send(JSON.stringify({ type: 'stop' }));
-    await sleep(2500); // allow finals + translations to route
+    await sleep(2500);
   }
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function summarize(p) {
-  const transcripts = p.received.filter((m) => m.type === 'transcript');
-  const translations = p.received.filter((m) => m.type === 'translation');
-  return { transcripts, translations };
 }
 
 const run = async () => {
   console.log(`room=${room}`);
-  const alice = new Participant('Alice', 'it');
-  const bob = new Participant('Bob', 'en');
-  const carla = new Participant('Carla', 'es');
+  const alice = new Peer('Alice', 'it');
+  const bob = new Peer('Bob', 'en');
+  const carla = new Peer('Carla', 'es');
   await Promise.all([alice.connect(), bob.connect(), carla.connect()]);
   console.log('connected: Alice(it), Bob(en), Carla(es)\n');
 
   let pass = true;
-  const check = (cond, label) => {
-    console.log(`${cond ? '✅' : '❌'} ${label}`);
-    if (!cond) pass = false;
-  };
+  const check = (cond, label) => { console.log(`${cond ? '✅' : '❌'} ${label}`); if (!cond) pass = false; };
 
-  // ---- Round 1: Alice speaks Italian ----
+  const fromSpeaker = (peer, speakerId) => peer.finals.filter((m) => m.speaker_id === speakerId);
+  const heard = (peer, speakerId) =>
+    fromSpeaker(peer, speakerId).map((m) => m.translations?.[peer.lang] ?? m.original).join(' ');
+
+  // Round 1: Alice speaks Italian.
   console.log('— Alice speaks Italian —');
   await alice.speak(itFile);
-  const aliceSays = summarize(alice).transcripts.map((m) => m.text).join(' ');
-  const bobGetsFromAlice = summarize(bob).translations.filter((m) => m.from === 'Alice');
-  const carlaGetsFromAlice = summarize(carla).translations.filter((m) => m.from === 'Alice');
-  console.log(`  Alice transcript : "${aliceSays}"`);
-  console.log(`  Bob   (en) hears : "${bobGetsFromAlice.map((m) => m.translated).join(' ')}"`);
-  console.log(`  Carla (es) hears : "${carlaGetsFromAlice.map((m) => m.translated).join(' ')}"`);
-  check(aliceSays.length > 0, 'Alice receives her own transcript');
-  check(bobGetsFromAlice.length > 0 && bobGetsFromAlice.every((m) => m.target_lang === 'en'),
-    'Bob receives Alice translated to en');
-  check(carlaGetsFromAlice.length > 0 && carlaGetsFromAlice.every((m) => m.target_lang === 'es'),
-    'Carla receives Alice translated to es');
+  console.log(`  Alice (it) sees : "${heard(alice, alice.id)}"`);
+  console.log(`  Bob   (en) hears: "${heard(bob, alice.id)}"`);
+  console.log(`  Carla (es) hears: "${heard(carla, alice.id)}"`);
+  check(fromSpeaker(alice, alice.id).length > 0, 'Alice receives her own subtitle (original)');
+  check(fromSpeaker(bob, alice.id).every((m) => m.translations?.en), 'Bob gets Alice with an en translation');
+  check(fromSpeaker(carla, alice.id).every((m) => m.translations?.es), 'Carla gets Alice with an es translation');
 
-  // ---- Round 2: Bob speaks English (if a sample was provided) ----
+  // Round 2: Bob speaks English (if a sample was provided).
   if (enFile) {
     console.log('\n— Bob speaks English —');
     await bob.speak(enFile);
-    const bobSays = summarize(bob).transcripts.map((m) => m.text).join(' ');
-    const aliceGetsFromBob = summarize(alice).translations.filter((m) => m.from === 'Bob');
-    const carlaGetsFromBob = summarize(carla).translations.filter((m) => m.from === 'Bob');
-    console.log(`  Bob transcript   : "${bobSays}"`);
-    console.log(`  Alice (it) hears : "${aliceGetsFromBob.map((m) => m.translated).join(' ')}"`);
-    console.log(`  Carla (es) hears : "${carlaGetsFromBob.map((m) => m.translated).join(' ')}"`);
-    check(bobSays.length > 0, 'Bob receives his own transcript');
-    check(aliceGetsFromBob.length > 0 && aliceGetsFromBob.every((m) => m.target_lang === 'it'),
-      'Alice receives Bob translated to it');
-    check(carlaGetsFromBob.length > 0 && carlaGetsFromBob.every((m) => m.target_lang === 'es'),
-      'Carla receives Bob translated to es');
+    console.log(`  Bob   (en) sees : "${heard(bob, bob.id)}"`);
+    console.log(`  Alice (it) hears: "${heard(alice, bob.id)}"`);
+    console.log(`  Carla (es) hears: "${heard(carla, bob.id)}"`);
+    check(fromSpeaker(alice, bob.id).every((m) => m.translations?.it), 'Alice gets Bob with an it translation');
+    check(fromSpeaker(carla, bob.id).every((m) => m.translations?.es), 'Carla gets Bob with an es translation');
   }
 
   console.log(pass ? '\n✅ MULTI-PARTY PASS' : '\n❌ MULTI-PARTY FAIL');
   process.exit(pass ? 0 : 1);
 };
 
-run().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+run().catch((e) => { console.error(e); process.exit(1); });
