@@ -105,6 +105,7 @@ const LANGS = [
 
     <!-- ===================== CALL ===================== -->
     <section id="call" class="screen hidden">
+      <div id="notif-banner" class="notif-banner hidden"></div>
       <div class="call-main">
         <header class="call-header">
           <button id="call-room" class="room-badge mono" title="Copy"></button>
@@ -116,10 +117,21 @@ const LANGS = [
           <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
           <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
           <button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button>
+          <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
+          <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
+          <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
           <button id="btn-chat" class="control-btn" data-i18n-title="chatTip"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
         </div>
       </div>
+
+      <aside id="participants-panel" class="side-panel closed" data-panel="participants">
+        <div class="side-panel-header">
+          <span class="card-title" data-i18n="participants"></span>
+          <button id="part-close" class="btn-ghost icon-btn" aria-label="Close"></button>
+        </div>
+        <div id="participants-list" class="participants-list"></div>
+      </aside>
 
       <aside id="chat-panel" class="chat-panel closed">
         <div class="chat-header">
@@ -366,6 +378,44 @@ const LANGS = [
     }
     .emoji-grid button:hover { background: var(--border); }
 
+    /* ---------- Notification banner ---------- */
+    .notif-banner {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 50;
+      text-align: center; padding: 10px 16px; font-size: 0.9rem; font-weight: 500;
+      background: var(--accent-dim); color: var(--text);
+      animation: notif-slide 0.3s ease-out;
+    }
+    @keyframes notif-slide {
+      0% { transform: translateY(-100%); }
+      100% { transform: translateY(0); }
+    }
+
+    /* ---------- Participants panel ---------- */
+    .participants-panel {
+      width: 260px; background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-right 0.3s;
+    }
+    .participants-panel.closed { margin-right: -261px; }
+    .side-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .participants-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+    .participants-list :global(.part-item) {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 10px; background: var(--bg); min-height: 44px;
+    }
+    .participants-list :global(.part-item.self) { outline: 1px solid var(--accent-dim); }
+    .participants-list :global(.part-avatar) {
+      width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+      font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.95); flex: none;
+    }
+    .participants-list :global(.part-info) { flex: 1; min-width: 0; }
+    .participants-list :global(.part-name) { font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 4px; }
+    .participants-list :global(.part-lang) { font-size: 0.72rem; color: var(--muted); }
+    .participants-list :global(.part-status) { display: flex; align-items: center; gap: 6px; flex: none; }
+    .participants-list :global(.part-status .ico) { width: 16px; height: 16px; }
+    .participants-list :global(.part-hand) { font-size: 1.1rem; animation: hand-wave 0.6s ease-in-out infinite alternate; }
+    .participants-list :global(.part-status-danger) { color: var(--danger); }
+    .participants-list :global(.part-status-muted) { color: var(--muted); }
+
     @media (max-width: 768px) {
       #call { flex-direction: column; }
       .chat-panel {
@@ -375,6 +425,13 @@ const LANGS = [
       }
       .chat-panel.closed { margin-right: 0; }
       .chat-panel.open { transform: translateY(0); }
+      .participants-panel {
+        position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 50vh;
+        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
+      }
+      .participants-panel.closed { margin-right: 0; }
+      .participants-panel.open { transform: translateY(0); }
       .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
     }
   </style>

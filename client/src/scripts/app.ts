@@ -55,6 +55,13 @@ const btnCam = $('btn-cam');
 const btnTts = $('btn-tts');
 const btnHand = $('btn-hand');
 const btnChat = $('btn-chat');
+const btnFullscreen = $('btn-fullscreen');
+const btnPip = $('btn-pip');
+const btnParticipants = $('btn-participants');
+const notifBanner = $('notif-banner');
+const participantsPanel = $('participants-panel');
+const participantsList = $('participants-list');
+const partClose = $('part-close');
 
 // ---- State -----------------------------------------------------------------
 const myId =
@@ -73,10 +80,13 @@ let micOn = true;
 let camOn = true;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
 let handRaised = false;
+let isFullscreen = false;
+let pipWindow: Window | null = null;
 let manualClose = false;
 
 const peerNames = new Map<string, { name: string; lang: string }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
+const peerMicMuted = new Map<string, boolean>(); // mic muted state from peer_muted
 const peerHandRaised = new Map<string, boolean>(); // hand-raise state
 const subtitleTimers = new Map<string, number>();
 
@@ -379,6 +389,7 @@ async function handleServer(msg: any): Promise<void> {
         addCell(p.id, p.user_name, p.lang, false);
         await mesh?.addPeer(p.id, false); // they'll initiate the offer
       }
+      updateParticipantsList();
       break;
     case 'peer_joined':
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang });
@@ -387,11 +398,13 @@ async function handleServer(msg: any): Promise<void> {
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
       if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
+      updateParticipantsList();
       break;
     case 'peer_left':
       mesh?.removePeer(msg.peer_id);
       removeCell(msg.peer_id);
       peerHandRaised.delete(msg.peer_id);
+      updateParticipantsList();
       break;
     case 'room_full':
       leaveCall();
@@ -411,11 +424,13 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'peer_muted':
       if (msg.kind === 'audio') {
+        peerMicMuted.set(msg.peer_id, msg.muted);
         setAudioMuted(msg.peer_id, msg.muted);
       } else {
         peerCamOff.set(msg.peer_id, msg.muted);
         setCameraOff(msg.peer_id, msg.muted);
       }
+      updateParticipantsList();
       break;
     case 'emoji_reaction':
       showEmojiReaction(msg.peer_id, msg.emoji);
@@ -423,6 +438,11 @@ async function handleServer(msg: any): Promise<void> {
     case 'hand_raised':
       peerHandRaised.set(msg.peer_id, msg.raised);
       setHandIndicator(msg.peer_id, msg.raised);
+      if (msg.raised && msg.peer_id !== myId) {
+        const pname = peerNames.get(msg.peer_id)?.name || 'Someone';
+        showNotif(`✋ ${pname} ${t('handRaisedNotif')}`);
+      }
+      updateParticipantsList();
       break;
     case 'subtitle_interim':
       showSubtitle(msg.speaker_id, msg.text, true);
@@ -601,6 +621,74 @@ function showEmojiReaction(peerId: string, emoji: string): void {
   setTimeout(() => floater.remove(), 1500);
 }
 
+// ---- Notification banner ---------------------------------------------------
+let notifTimer: number | null = null;
+function showNotif(text: string): void {
+  notifBanner.textContent = text;
+  notifBanner.classList.remove('hidden');
+  if (notifTimer) clearTimeout(notifTimer);
+  notifTimer = window.setTimeout(() => notifBanner.classList.add('hidden'), 4000);
+}
+
+// ---- Participants panel ----------------------------------------------------
+function toggleParticipants(force?: boolean): void {
+  const open = force ?? participantsPanel.classList.contains('closed');
+  participantsPanel.classList.toggle('open', open);
+  participantsPanel.classList.toggle('closed', !open);
+  if (open) updateParticipantsList();
+  setTimeout(layoutVideos, 320);
+}
+
+partClose.addEventListener('click', () => toggleParticipants(false));
+
+function updateParticipantsList(): void {
+  const myLang = session?.lang || 'en';
+  const myName = session?.name || t('namePlaceholder');
+  const items: Array<{ id: string; name: string; lang: string; isSelf: boolean; micMuted: boolean; handRaised: boolean }> = [];
+
+  items.push({ id: myId, name: myName, lang: myLang, isSelf: true, micMuted: !micOn, handRaised });
+  for (const [id, info] of peerNames) {
+    items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false });
+  }
+
+  participantsList.innerHTML = '';
+  for (const p of items) {
+    const el = document.createElement('div');
+    el.className = `part-item${p.isSelf ? ' self' : ''}`;
+
+    const avatar = document.createElement('span');
+    avatar.className = 'part-avatar';
+    avatar.style.background = avatarGradient(p.name);
+    avatar.textContent = p.name.slice(0, 2).toUpperCase();
+
+    const info = document.createElement('div');
+    info.className = 'part-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'part-name';
+    nameEl.innerHTML = `${FLAG[p.lang] || ''} ${p.name}${p.isSelf ? ` · ${t('you')}` : ''}`.trim();
+    const langEl = document.createElement('div');
+    langEl.className = 'part-lang';
+    langEl.textContent = p.lang.toUpperCase();
+    info.append(nameEl, langEl);
+
+    const status = document.createElement('div');
+    status.className = 'part-status';
+    if (p.handRaised) {
+      const hand = document.createElement('span');
+      hand.className = 'part-hand';
+      hand.textContent = '✋';
+      status.appendChild(hand);
+    }
+    if (p.micMuted) {
+      status.innerHTML += icon('mic-off', 16);
+      status.querySelector('.ico')?.classList.add('part-status-danger');
+    }
+
+    el.append(avatar, info, status);
+    participantsList.appendChild(el);
+  }
+}
+
 // ---- Subtitles -------------------------------------------------------------
 function showSubtitle(speakerId: string, text: string, interim: boolean, original?: string): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(speakerId)}"]`);
@@ -645,6 +733,10 @@ function setControlState(): void {
   btnHand.classList.toggle('active-success', handRaised);
   btnHand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
   btnHand.title = handRaised ? t('handUp') : t('handTip');
+  btnFullscreen.innerHTML = icon(document.fullscreenElement ? 'fullscreen-off' : 'fullscreen');
+  btnPip.innerHTML = icon('pip');
+  const partIco = btnParticipants.querySelector('.part-ico');
+  if (partIco) partIco.innerHTML = icon('users');
   const chatIco = btnChat.querySelector('.chat-ico');
   if (chatIco) chatIco.innerHTML = icon('chat');
   const leave = document.getElementById('btn-leave');
@@ -681,6 +773,47 @@ btnHand.addEventListener('click', () => {
   setControlState();
 });
 
+btnFullscreen.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+});
+
+btnPip.addEventListener('click', () => {
+  if (pipWindow && !pipWindow.closed) {
+    pipWindow.close();
+    pipWindow = null;
+    return;
+  }
+  if ('documentPictureInPicture' in window) {
+    (window as any).documentPictureInPicture.requestWindow({ width: 480, height: 360 }).then((w: Window) => {
+      pipWindow = w;
+      const stage = document.querySelector('.video-stage') as HTMLElement;
+      if (stage) {
+        w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+        const clone = stage.cloneNode(true) as HTMLElement;
+        clone.style.cssText = 'width:100%;height:100dvh';
+        w.document.body.appendChild(clone);
+        // Re-set video srcObjects in the cloned stage
+        clone.querySelectorAll('video').forEach((v) => {
+          const peer = (v.closest('[data-peer]') as HTMLElement)?.dataset.peer;
+          if (!peer) return;
+          const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peer)}"]`);
+          if (cell) {
+            const src = (cell.querySelector('video') as HTMLVideoElement)?.srcObject;
+            if (src) v.srcObject = src;
+          }
+        });
+      }
+      w.addEventListener('pagehide', () => { pipWindow = null; });
+    }).catch(() => {});
+  }
+});
+
+btnParticipants.addEventListener('click', () => toggleParticipants());
+
 btnChat.addEventListener('click', () => toggleChat());
 $('chat-close').addEventListener('click', () => toggleChat(false));
 function toggleChat(force?: boolean): void {
@@ -708,6 +841,8 @@ function leaveCall(): void {
   manualClose = true;
   audioCapture?.stop();
   mesh?.destroy();
+  if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (ws) {
     ws.close(1000, 'leave');
     ws = null;
@@ -718,10 +853,13 @@ function leaveCall(): void {
   }
   if (window.speechSynthesis) speechSynthesis.cancel();
   handRaised = false;
+  isFullscreen = false;
   mesh = null;
   audioCapture = null;
   chat = null;
   chatPanel.classList.remove('open');
+  participantsPanel.classList.remove('open');
+  participantsPanel.classList.add('closed');
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
@@ -767,9 +905,11 @@ callRoom.addEventListener('click', async () => {
 // ---- Boot ------------------------------------------------------------------
 window.addEventListener('resize', layoutVideos);
 window.addEventListener('orientationchange', () => setTimeout(layoutVideos, 200));
+document.addEventListener('fullscreenchange', setControlState);
 $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
+$('part-close').innerHTML = icon('close', 16);
 
 // ---- Emoji picker ----------------------------------------------------------
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];
