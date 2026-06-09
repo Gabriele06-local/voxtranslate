@@ -2,6 +2,7 @@
 // → WebRTC video call with translated subtitles + chat.
 
 import { applyI18n, detectLang, FLAG, setUiLang, t } from './i18n';
+import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
 import { ChatManager, type ChatPayload } from './chat';
@@ -147,7 +148,7 @@ function renderRooms(rooms: Array<{ room: string; count: number; participants: A
     code.textContent = r.room;
     const count = document.createElement('span');
     count.className = 'room-item-count';
-    count.textContent = `👤 ${r.count}/4`;
+    count.innerHTML = `${icon('users', 13)} ${r.count}/4`;
     main.append(code, count);
     const members = document.createElement('div');
     members.className = 'room-item-members';
@@ -408,7 +409,7 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean): void 
   const mute = document.createElement('span');
   mute.className = 'mute-indicator';
   mute.hidden = true;
-  mute.textContent = '🔇';
+  mute.innerHTML = icon('mic-off', 14);
   overlay.append(nameEl, langEl, mute);
   cell.appendChild(overlay);
 
@@ -489,10 +490,15 @@ function showSubtitle(speakerId: string, text: string, interim: boolean, origina
 // ---- Controls --------------------------------------------------------------
 function setControlState(): void {
   btnMic.classList.toggle('active-danger', !micOn);
-  btnMic.textContent = micOn ? '🎤' : '🔇';
+  btnMic.innerHTML = icon(micOn ? 'mic' : 'mic-off');
   btnCam.classList.toggle('active-danger', !camOn);
-  btnCam.textContent = camOn ? '📷' : '🚫';
+  btnCam.innerHTML = icon(camOn ? 'video' : 'video-off');
   btnTts.classList.toggle('active-success', ttsOn);
+  btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
+  const chatIco = btnChat.querySelector('.chat-ico');
+  if (chatIco) chatIco.innerHTML = icon('chat');
+  const leave = document.getElementById('btn-leave');
+  if (leave) leave.innerHTML = icon('leave');
 }
 
 btnMic.addEventListener('click', () => {
@@ -599,4 +605,7 @@ callRoom.addEventListener('click', async () => {
 });
 
 // ---- Boot ------------------------------------------------------------------
+$('dice').innerHTML = icon('shuffle', 18);
+$('chat-close').innerHTML = icon('close', 16);
+$('chat-send').innerHTML = icon('send', 20);
 startLobby();

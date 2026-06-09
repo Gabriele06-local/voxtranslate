@@ -43,7 +43,7 @@ const LANGS = [
             <span class="field-label" data-i18n="roomCode"></span>
             <div class="room-row">
               <input id="room" type="text" autocomplete="off" spellcheck="false" />
-              <button id="dice" class="btn-ghost icon-btn" title="Random">🎲</button>
+              <button id="dice" class="btn-ghost icon-btn" title="Random" aria-label="Random"></button>
             </div>
           </label>
           <div class="field">
@@ -105,23 +105,23 @@ const LANGS = [
         </header>
         <div id="video-grid" class="video-grid" data-peers="1"></div>
         <div class="control-bar">
-          <button id="btn-mic" class="control-btn" data-i18n-title="muteTip">🎤</button>
-          <button id="btn-cam" class="control-btn" data-i18n-title="camTip">📷</button>
-          <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip">🔊</button>
-          <button id="btn-chat" class="control-btn" data-i18n-title="chatTip">💬<span id="chat-badge" class="chat-badge" hidden>0</span></button>
-          <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip">🚪</button>
+          <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
+          <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
+          <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
+          <button id="btn-chat" class="control-btn" data-i18n-title="chatTip"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
+          <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
         </div>
       </div>
 
       <aside id="chat-panel" class="chat-panel closed">
         <div class="chat-header">
           <span class="card-title" data-i18n="chatTitle"></span>
-          <button id="chat-close" class="btn-ghost icon-btn">✕</button>
+          <button id="chat-close" class="btn-ghost icon-btn" aria-label="Close"></button>
         </div>
         <div id="chat-messages" class="chat-messages"></div>
         <div class="chat-input-row">
           <input id="chat-input" type="text" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" />
-          <button id="chat-send" class="btn-primary" data-i18n="send"></button>
+          <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
         </div>
       </aside>
     </section>
@@ -281,6 +281,14 @@ const LANGS = [
       font-size: 0.62rem; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 4px;
       display: flex; align-items: center; justify-content: center;
     }
+
+    /* ---------- Icons (inline SVG) ---------- */
+    .ico { display: block; pointer-events: none; }
+    .icon-btn { display: grid; place-items: center; }
+    .icon-btn .ico { width: 18px; height: 18px; }
+    .mute-indicator { color: var(--danger); display: inline-flex; }
+    .room-item-count { display: inline-flex; align-items: center; gap: 5px; }
+    .send-btn { width: auto; min-height: 44px; padding: 0 16px; display: grid; place-items: center; }
 
     /* ---------- Chat ---------- */
     .chat-panel {
