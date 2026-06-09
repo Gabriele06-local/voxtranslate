@@ -20,3 +20,6 @@
 /*.webm
 /*.aiff
 /*.png
+
+# Vercel
+/client/.vercel
