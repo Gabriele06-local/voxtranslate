@@ -111,17 +111,38 @@ Pushes to `main` auto-deploy both.
 
 ## Testing
 
-**Multi-party subtitle pipeline (no mic/camera)** — `scripts/pipeline-test.mjs` connects
-three peers (it/en/es), each speaks, and asserts the `subtitle_final` fan-out reaches
-everyone in their language:
+The backend (`:3001`) must be running with real keys for the network-backed tests
+(chat/subtitles) — they're skipped if `DEEPGRAM_API_KEY` / `GROQ_API_KEY` are absent.
+
+**Server — Rust unit + integration tests** (lifecycle / signaling / max-4 / mute need no
+APIs; chat + audio drive real Deepgram/Groq):
 
 ```bash
-say -v Alice    -o it.aiff "Ciao a tutti, come va oggi?"
-say -v Samantha -o en.aiff "Hello everyone, how is it going today?"
-ffmpeg -y -i it.aiff -ac 1 -ar 16000 -c:a libopus -b:a 32k -f webm -live 1 it.webm
-ffmpeg -y -i en.aiff -ac 1 -ar 16000 -c:a libopus -b:a 32k -f webm -live 1 en.webm
-node scripts/pipeline-test.mjs it.webm en.webm
+cd server
+cargo test
+# coverage (rustup toolchain):
+rustup run stable cargo llvm-cov test --summary-only   # ~86% lines
 ```
+
+**Client — Playwright e2e** (home/lobby, pre-join toggles, WebRTC video, translated chat,
+subtitles, controls, room-full) with V8 coverage mapped to `src/scripts/*.ts`:
+
+```bash
+cd client
+npm run test:e2e        # builds an instrumented bundle, serves it, runs e2e
+# → prints "client script coverage: ~88% lines"; HTML report in client/coverage/
+```
+
+**Multi-party subtitle pipeline (standalone, no browser)** — `scripts/pipeline-test.mjs`
+connects three peers (it/en/es), each speaks, asserting the `subtitle_final` fan-out:
+
+```bash
+say -v Alice -o it.aiff "Ciao a tutti, come va oggi?"
+ffmpeg -y -i it.aiff -ac 1 -ar 16000 -c:a libopus -b:a 32k -f webm -live 1 it.webm
+node scripts/pipeline-test.mjs it.webm
+```
+
+Coverage: **server ≈ 86% lines**, **client ≈ 88% lines** (both ≥ 85%).
 
 ## Project layout
 

@@ -201,3 +201,63 @@ impl DeepgramResponse {
         Some((text, alt.confidence))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_message_type_tags() {
+        assert!(ServerMessage::RoomFull.to_json().contains("\"type\":\"room_full\""));
+        assert!(ServerMessage::PeerLeft { peer_id: "p".into() }.to_json().contains("\"type\":\"peer_left\""));
+        let m = ServerMessage::PeerMuted { peer_id: "a".into(), kind: "audio".into(), muted: true }.to_json();
+        assert!(m.contains("\"type\":\"peer_muted\"") && m.contains("\"muted\":true"));
+        let s = ServerMessage::SubtitleFinal {
+            speaker_id: "s".into(), speaker_name: "n".into(), original: "ciao".into(),
+            lang: "it".into(), translations: std::collections::HashMap::new(),
+        }.to_json();
+        assert!(s.contains("\"type\":\"subtitle_final\"") && s.contains("\"original\":\"ciao\""));
+        assert!(ServerMessage::Error { message: "x".into() }.to_json().contains("\"type\":\"error\""));
+    }
+
+    #[test]
+    fn client_message_parsing() {
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"start"}"#).unwrap(), ClientMessage::Start));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"stop"}"#).unwrap(), ClientMessage::Stop));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"chat","text":"hi"}"#).unwrap(), ClientMessage::Chat { .. }));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"offer","to":"p","sdp":"s"}"#).unwrap(), ClientMessage::Offer { .. }));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"answer","to":"p","sdp":"s"}"#).unwrap(), ClientMessage::Answer { .. }));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"ice","to":"p","candidate":{}}"#).unwrap(), ClientMessage::Ice { .. }));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"mute_audio","muted":true}"#).unwrap(), ClientMessage::MuteAudio { muted: true }));
+        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"mute_video","muted":false}"#).unwrap(), ClientMessage::MuteVideo { muted: false }));
+        assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
+    }
+
+    #[test]
+    fn deepgram_best_alternative() {
+        let ok = r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"ciao","confidence":0.9}]}}"#;
+        let parsed = serde_json::from_str::<DeepgramResponse>(ok).unwrap();
+        let (t, c) = parsed.best_alternative().unwrap();
+        assert_eq!(t, "ciao");
+        assert!((c - 0.9).abs() < 1e-3);
+
+        let empty = r#"{"type":"Results","channel":{"alternatives":[{"transcript":"  ","confidence":0.4}]}}"#;
+        assert!(serde_json::from_str::<DeepgramResponse>(empty).unwrap().best_alternative().is_none());
+
+        let meta = r#"{"type":"Metadata"}"#;
+        assert!(serde_json::from_str::<DeepgramResponse>(meta).unwrap().best_alternative().is_none());
+
+        let no_alt = r#"{"type":"Results","channel":{"alternatives":[]}}"#;
+        assert!(serde_json::from_str::<DeepgramResponse>(no_alt).unwrap().best_alternative().is_none());
+    }
+
+    #[test]
+    fn ws_params_optional_fields() {
+        let p: WsParams = serde_json::from_str(r#"{"room":"r","lang":"it"}"#).unwrap();
+        assert_eq!(p.room, "r");
+        assert_eq!(p.lang, "it");
+        assert!(p.name.is_none() && p.id.is_none() && p.public.is_none());
+        let p2: WsParams = serde_json::from_str(r#"{"room":"r","lang":"it","name":"A","id":"x","public":true}"#).unwrap();
+        assert_eq!(p2.public, Some(true));
+    }
+}

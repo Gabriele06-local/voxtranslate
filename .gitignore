@@ -24,3 +24,10 @@
 # Vercel
 .vercel
 .vercel
+
+# Test / coverage artifacts
+/client/coverage
+/client/test-results
+/client/playwright-report
+/client/.cache
+/server/tarpaulin-report.html

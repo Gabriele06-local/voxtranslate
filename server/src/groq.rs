@@ -125,3 +125,30 @@ fn lang_name(code: &str) -> &str {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lang_name_maps_known_and_passes_through() {
+        assert_eq!(lang_name("it"), "Italian");
+        assert_eq!(lang_name("en"), "English");
+        assert_eq!(lang_name("zh"), "Chinese");
+        assert_eq!(lang_name("ja"), "Japanese");
+        assert_eq!(lang_name("xx"), "xx");
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn translate_errors_on_bad_key() {
+        // A bad key makes Groq return a non-success status -> Err (covers the
+        // error-handling branch).
+        let g = Groq::new("bad-key-xyz".into());
+        assert!(g.translate("ciao", "it", "en").await.is_err());
+    }
+}

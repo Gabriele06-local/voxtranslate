@@ -51,3 +51,21 @@ impl Translator {
         translations
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::groq::Groq;
+
+    #[tokio::test]
+    async fn fanout_includes_source_and_skips_same_lang() {
+        let tr = Translator::new(Groq::new("dummy-key".into()));
+        // No targets -> just the source text, no network call.
+        let m = tr.translate_fanout("ciao", "it", &[]).await;
+        assert_eq!(m.get("it").map(String::as_str), Some("ciao"));
+        assert_eq!(m.len(), 1);
+        // target == source is skipped (still no network).
+        let m2 = tr.translate_fanout("ciao", "it", &["it".to_string()]).await;
+        assert_eq!(m2.len(), 1);
+    }
+}

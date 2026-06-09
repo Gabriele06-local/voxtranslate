@@ -153,3 +153,100 @@ impl RoomManager {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+
+    fn peer(id: &str, lang: &str) -> (Peer, UnboundedReceiver<String>) {
+        let (tx, rx) = unbounded_channel();
+        (
+            Peer { id: id.into(), name: id.to_uppercase(), lang: lang.into(), tx },
+            rx,
+        )
+    }
+
+    #[test]
+    fn join_returns_existing_and_caps_at_max() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer("a", "it");
+        assert_eq!(rm.join("r", a, Visibility::Public).unwrap().len(), 0);
+        let (b, _rb) = peer("b", "en");
+        let existing = rm.join("r", b, Visibility::Public).unwrap();
+        assert_eq!(existing.len(), 1);
+        assert_eq!(existing[0].id, "a");
+        let (c, _rc) = peer("c", "es");
+        rm.join("r", c, Visibility::Public).unwrap();
+        let (d, _rd) = peer("d", "fr");
+        rm.join("r", d, Visibility::Public).unwrap();
+        let (e, _re) = peer("e", "de");
+        assert!(rm.join("r", e, Visibility::Public).is_err(), "5th peer rejected");
+    }
+
+    #[test]
+    fn broadcast_relay_and_except() {
+        let rm = RoomManager::new();
+        let (a, mut ra) = peer("a", "it");
+        let (b, mut rb) = peer("b", "en");
+        rm.join("r", a, Visibility::Private).unwrap();
+        rm.join("r", b, Visibility::Private).unwrap();
+
+        rm.broadcast("r", "hi");
+        assert_eq!(ra.try_recv().unwrap(), "hi");
+        assert_eq!(rb.try_recv().unwrap(), "hi");
+
+        assert!(rm.relay_to_peer("r", "b", "yo"));
+        assert_eq!(rb.try_recv().unwrap(), "yo");
+        assert!(ra.try_recv().is_err());
+        assert!(!rm.relay_to_peer("r", "ghost", "x"));
+
+        rm.broadcast_except("r", "a", "z");
+        assert_eq!(rb.try_recv().unwrap(), "z");
+        assert!(ra.try_recv().is_err());
+    }
+
+    #[test]
+    fn languages_distinct_excluding_self() {
+        let rm = RoomManager::new();
+        for (id, l) in [("a", "it"), ("b", "en"), ("c", "en"), ("d", "it")] {
+            let (p, r) = peer(id, l);
+            std::mem::forget(r); // keep sender alive
+            rm.join("r", p, Visibility::Public).unwrap();
+        }
+        let mut langs = rm.get_room_languages("r", "a"); // exclude a(it); distinct of b,c,d
+        langs.sort();
+        assert_eq!(langs, vec!["en".to_string(), "it".to_string()]);
+    }
+
+    #[test]
+    fn public_rooms_filters_and_counts() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer("a", "it");
+        let (b, _rb) = peer("b", "en");
+        rm.join("plaza", a, Visibility::Public).unwrap();
+        rm.join("plaza", b, Visibility::Public).unwrap();
+        let (c, _rc) = peer("c", "es");
+        rm.join("secret", c, Visibility::Private).unwrap();
+        let pr = rm.public_rooms();
+        assert_eq!(pr.len(), 1);
+        assert_eq!(pr[0].room, "plaza");
+        assert_eq!(pr[0].count, 2);
+        assert_eq!(pr[0].participants.len(), 2);
+    }
+
+    #[test]
+    fn remove_and_prune_drop_empty_rooms() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer("a", "it");
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.remove("r", "a");
+        assert!(rm.public_rooms().is_empty());
+
+        let (b, rb) = peer("b", "en");
+        rm.join("r2", b, Visibility::Public).unwrap();
+        drop(rb); // close receiver -> sender is_closed
+        rm.prune();
+        assert!(rm.public_rooms().is_empty());
+    }
+}
