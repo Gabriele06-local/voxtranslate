@@ -38,6 +38,7 @@ const buyStatus = $('buy-status');
 const exhaustedModal = $('exhausted-modal');
 
 let billing = false; // accounts/credits enabled on this backend
+let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
 
 // ---- Home refs -------------------------------------------------------------
 const roomInput = $<HTMLInputElement>('room');
@@ -481,14 +482,23 @@ async function handleServer(msg: any): Promise<void> {
         show(lowBanner, true);
       }
       break;
-    case 'balance_exhausted':
+    case 'balance_exhausted': {
       // The server closed our STT session; stop feeding it audio (WebRTC stays
-      // up so peers still hear us) and surface the buy-credits modal.
+      // up so peers still hear us). The modal adapts: a billed user is out of
+      // credits (→ buy); a guest's free trial ended (→ sign in).
       audioCapture?.stop();
-      auth.setBalance(0);
-      setBalanceUi(0);
+      const loggedIn = billing && auth.isLoggedIn();
+      exhaustedIsGuest = !loggedIn;
+      $('exhausted-title').textContent = t(loggedIn ? 'outOfCredits' : 'trialEnded');
+      $('exhausted-text').textContent = t(loggedIn ? 'outOfCreditsText' : 'trialEndedText');
+      $('exhausted-buy').textContent = t(loggedIn ? 'buyCredits' : 'signIn');
+      if (loggedIn) {
+        auth.setBalance(0);
+        setBalanceUi(0);
+      }
       show(exhaustedModal, true);
       break;
+    }
     case 'error':
       if (msg.code === 'insufficient_balance') {
         leaveCall();
@@ -1028,7 +1038,13 @@ $('tab-usage').addEventListener('click', () => selectTab('usage'));
 $('exhausted-dismiss').addEventListener('click', () => show(exhaustedModal, false));
 $('exhausted-buy').addEventListener('click', () => {
   show(exhaustedModal, false);
-  openBuyModal();
+  if (exhaustedIsGuest) {
+    // Guests can't buy — send them to the login gate to continue with an account.
+    leaveCall();
+    showLogin();
+  } else {
+    openBuyModal();
+  }
 });
 
 // ---- Boot ------------------------------------------------------------------
