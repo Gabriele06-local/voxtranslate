@@ -429,8 +429,13 @@ const LANGS = [
     .ledger-list :global(.ledger-empty) { color: var(--muted); text-align: center; padding: 12px 0; font-size: 0.85rem; }
 
     /* Google avatar in a video cell (overrides the gradient initials block). */
-    .video-grid :global(.avatar img) { width: 100%; height: 100%; object-fit: cover; }
-    .video-grid :global(.avatar-img) { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; }
+    /* Camera-off avatar: a centered, proportionate circle (its parent .avatar is
+       inset:0 + place-items:center). aspect-ratio keeps it square so a square
+       source never stretches; it scales with the cell but stays sensibly bounded. */
+    .video-grid :global(.avatar-img) {
+      width: clamp(56px, 30%, 140px); aspect-ratio: 1; border-radius: 50%;
+      object-fit: cover; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    }
     .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 5px; }
 
     @media (max-width: 768px) {
