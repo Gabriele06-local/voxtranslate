@@ -53,6 +53,7 @@ const chatBadge = $('chat-badge');
 const btnMic = $('btn-mic');
 const btnCam = $('btn-cam');
 const btnTts = $('btn-tts');
+const btnHand = $('btn-hand');
 const btnChat = $('btn-chat');
 
 // ---- State -----------------------------------------------------------------
@@ -71,10 +72,12 @@ let visibilityPublic = true;
 let micOn = true;
 let camOn = true;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
+let handRaised = false;
 let manualClose = false;
 
 const peerNames = new Map<string, { name: string; lang: string }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
+const peerHandRaised = new Map<string, boolean>(); // hand-raise state
 const subtitleTimers = new Map<string, number>();
 
 // ============================================================================
@@ -388,6 +391,7 @@ async function handleServer(msg: any): Promise<void> {
     case 'peer_left':
       mesh?.removePeer(msg.peer_id);
       removeCell(msg.peer_id);
+      peerHandRaised.delete(msg.peer_id);
       break;
     case 'room_full':
       leaveCall();
@@ -412,6 +416,13 @@ async function handleServer(msg: any): Promise<void> {
         peerCamOff.set(msg.peer_id, msg.muted);
         setCameraOff(msg.peer_id, msg.muted);
       }
+      break;
+    case 'emoji_reaction':
+      showEmojiReaction(msg.peer_id, msg.emoji);
+      break;
+    case 'hand_raised':
+      peerHandRaised.set(msg.peer_id, msg.raised);
+      setHandIndicator(msg.peer_id, msg.raised);
       break;
     case 'subtitle_interim':
       showSubtitle(msg.speaker_id, msg.text, true);
@@ -564,6 +575,32 @@ function setAudioMuted(id: string, muted: boolean): void {
   if (cell) (cell.querySelector('.mute-indicator') as HTMLElement).hidden = !muted;
 }
 
+function setHandIndicator(id: string, raised: boolean): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
+  if (!cell) return;
+  let indicator = cell.querySelector('.hand-indicator') as HTMLElement | null;
+  if (raised) {
+    if (!indicator) {
+      indicator = document.createElement('span');
+      indicator.className = 'hand-indicator';
+      indicator.textContent = '✋';
+      cell.appendChild(indicator);
+    }
+  } else if (indicator) {
+    indicator.remove();
+  }
+}
+
+function showEmojiReaction(peerId: string, emoji: string): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peerId)}"]`);
+  if (!cell) return;
+  const floater = document.createElement('span');
+  floater.className = 'emoji-float';
+  floater.textContent = emoji;
+  cell.appendChild(floater);
+  setTimeout(() => floater.remove(), 1500);
+}
+
 // ---- Subtitles -------------------------------------------------------------
 function showSubtitle(speakerId: string, text: string, interim: boolean, original?: string): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(speakerId)}"]`);
@@ -605,6 +642,9 @@ function setControlState(): void {
   btnCam.innerHTML = icon(camOn ? 'video' : 'video-off');
   btnTts.classList.toggle('active-success', ttsOn);
   btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
+  btnHand.classList.toggle('active-success', handRaised);
+  btnHand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
+  btnHand.title = handRaised ? t('handUp') : t('handTip');
   const chatIco = btnChat.querySelector('.chat-ico');
   if (chatIco) chatIco.innerHTML = icon('chat');
   const leave = document.getElementById('btn-leave');
@@ -632,6 +672,12 @@ btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
   if (!ttsOn && window.speechSynthesis) speechSynthesis.cancel();
   applyAudioMode(); // mute/unmute foreign originals to match the mode
+  setControlState();
+});
+
+btnHand.addEventListener('click', () => {
+  handRaised = !handRaised;
+  ws?.send(JSON.stringify({ type: 'hand_raise', raised: handRaised }));
   setControlState();
 });
 
@@ -671,6 +717,7 @@ function leaveCall(): void {
     localStream = null;
   }
   if (window.speechSynthesis) speechSynthesis.cancel();
+  handRaised = false;
   mesh = null;
   audioCapture = null;
   chat = null;
@@ -723,4 +770,30 @@ window.addEventListener('orientationchange', () => setTimeout(layoutVideos, 200)
 $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
+
+// ---- Emoji picker ----------------------------------------------------------
+const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];
+const emojiToggle = $('emoji-toggle');
+const emojiPanel = $('emoji-panel');
+const emojiGrid = $('emoji-grid');
+
+for (const em of EMOJI_LIST) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = em;
+  btn.addEventListener('click', () => sendEmoji(em));
+  emojiGrid.appendChild(btn);
+}
+
+emojiToggle.addEventListener('click', (e) => {
+  e.stopPropagation();
+  emojiPanel.classList.toggle('hidden');
+});
+document.addEventListener('click', () => emojiPanel.classList.add('hidden'));
+
+function sendEmoji(emoji: string): void {
+  ws?.send(JSON.stringify({ type: 'emoji', emoji }));
+  emojiPanel.classList.add('hidden');
+}
+
 startLobby();

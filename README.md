@@ -24,7 +24,9 @@ Each peer (browser)
 - 🌍 **Live translated subtitles** — each utterance is transcribed and translated into
   every language in the room **in parallel**, shown on the speaker's video cell in your language.
 - 💬 **Auto-translated chat** — messages arrive in your language, original shown below.
-- 🎚️ **Controls** — mute mic, camera on/off, speak-translations (TTS), chat, leave.
+- 😀 **Emoji reactions** — send quick emoji reactions (👍 ❤️ 😂 👏 🎉 🔥 ...) that float over the speaker's video.
+- ✋ **Hand raise** — raise your hand like in Google Meet to signal you want to speak.
+- 🎚️ **Controls** — mute mic, camera on/off, speak-translations (TTS), hand raise, chat, leave.
 - 🏠 **Lobby** — public rooms list their online members; tap to join. Rooms can be public or private.
 - 🎛️ **Pre-join** — camera preview + camera/mic device selectors before entering.
 - 🌐 **Localized UI** — all 8 supported languages, auto-detected from the browser (fallback English).
@@ -52,11 +54,12 @@ Peers connect to `GET /ws?room=..&lang=..&name=..&id=..&public=..` and exchange 
 text frames (audio is sent as binary frames):
 
 - **Client → server:** `start` / `stop` (speaking session), `offer` / `answer` / `ice`
-  (WebRTC, relayed to `to`), `chat`, `mute_audio` / `mute_video`.
+  (WebRTC, relayed to `to`), `chat`, `mute_audio` / `mute_video`, `emoji` (reaction),
+  `hand_raise` (toggle).
 - **Server → client:** `room_joined` (your id + existing peers), `peer_joined`,
   `peer_left`, `room_full`, relayed `offer` / `answer` / `ice` (with `from`),
-  `chat_message` (with a `translations` map), `peer_muted`, `subtitle_interim`,
-  `subtitle_final` (with a `translations` map).
+  `chat_message` (with a `translations` map), `peer_muted`, `emoji_reaction`,
+  `hand_raised`, `subtitle_interim`, `subtitle_final` (with a `translations` map).
 - `GET /rooms` — lobby (public rooms + online members). `GET /health` — health check.
 
 Existing peers initiate the WebRTC offer toward a newcomer (avoids offer glare).

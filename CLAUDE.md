@@ -30,6 +30,7 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - TypeScript: strict mode, modular files under src/scripts/
 - JSON over WS text frames for messages, binary frames for audio
 - Environment variables via dotenvy
+- Emoji reactions and hand-raise are relayed without translation
 
 ## API Keys
 

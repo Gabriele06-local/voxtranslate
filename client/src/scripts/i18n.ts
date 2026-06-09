@@ -28,6 +28,7 @@ export const I18N: Record<string, Dict> = {
     you: 'You', waitingPeers: 'Waiting for others to join…', connectionLost: 'Connection lost — reconnecting…',
     chatTitle: 'Chat', chatPlaceholder: 'Type a message…', send: 'Send',
     muteTip: 'Microphone', camTip: 'Camera', ttsTip: 'Speak translations', chatTip: 'Chat', leaveTip: 'Leave',
+    handTip: 'Raise hand', handUp: 'Lower hand',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -41,6 +42,7 @@ export const I18N: Record<string, Dict> = {
     you: 'Tu', waitingPeers: 'In attesa di altri partecipanti…', connectionLost: 'Connessione persa — riconnessione…',
     chatTitle: 'Chat', chatPlaceholder: 'Scrivi un messaggio…', send: 'Invia',
     muteTip: 'Microfono', camTip: 'Camera', ttsTip: 'Pronuncia traduzioni', chatTip: 'Chat', leaveTip: 'Esci',
+    handTip: 'Alza mano', handUp: 'Abbassa mano',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -54,6 +56,7 @@ export const I18N: Record<string, Dict> = {
     you: 'Tú', waitingPeers: 'Esperando a otros participantes…', connectionLost: 'Conexión perdida — reconectando…',
     chatTitle: 'Chat', chatPlaceholder: 'Escribe un mensaje…', send: 'Enviar',
     muteTip: 'Micrófono', camTip: 'Cámara', ttsTip: 'Leer traducciones', chatTip: 'Chat', leaveTip: 'Salir',
+    handTip: 'Levantar mano', handUp: 'Bajar mano',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -67,6 +70,7 @@ export const I18N: Record<string, Dict> = {
     you: 'Vous', waitingPeers: "En attente d'autres participants…", connectionLost: 'Connexion perdue — reconnexion…',
     chatTitle: 'Chat', chatPlaceholder: 'Écrivez un message…', send: 'Envoyer',
     muteTip: 'Micro', camTip: 'Caméra', ttsTip: 'Lire les traductions', chatTip: 'Chat', leaveTip: 'Quitter',
+    handTip: 'Lever la main', handUp: 'Baisser la main',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -80,6 +84,7 @@ export const I18N: Record<string, Dict> = {
     you: 'Du', waitingPeers: 'Warte auf weitere Teilnehmer…', connectionLost: 'Verbindung verloren — neu verbinden…',
     chatTitle: 'Chat', chatPlaceholder: 'Nachricht schreiben…', send: 'Senden',
     muteTip: 'Mikrofon', camTip: 'Kamera', ttsTip: 'Übersetzungen vorlesen', chatTip: 'Chat', leaveTip: 'Verlassen',
+    handTip: 'Hand heben', handUp: 'Hand senken',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -93,6 +98,7 @@ export const I18N: Record<string, Dict> = {
     you: 'Você', waitingPeers: 'Aguardando outros participantes…', connectionLost: 'Conexão perdida — reconectando…',
     chatTitle: 'Chat', chatPlaceholder: 'Escreva uma mensagem…', send: 'Enviar',
     muteTip: 'Microfone', camTip: 'Câmera', ttsTip: 'Ler traduções', chatTip: 'Chat', leaveTip: 'Sair',
+    handTip: 'Levantar mão', handUp: 'Abaixar mão',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -106,6 +112,7 @@ export const I18N: Record<string, Dict> = {
     you: 'あなた', waitingPeers: '他の参加者を待っています…', connectionLost: '接続が切れました — 再接続中…',
     chatTitle: 'チャット', chatPlaceholder: 'メッセージを入力…', send: '送信',
     muteTip: 'マイク', camTip: 'カメラ', ttsTip: '翻訳を読み上げる', chatTip: 'チャット', leaveTip: '退出',
+    handTip: '手を上げる', handUp: '手を下げる',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -119,6 +126,7 @@ export const I18N: Record<string, Dict> = {
     you: '你', waitingPeers: '正在等待其他参与者…', connectionLost: '连接断开 — 正在重连…',
     chatTitle: '聊天', chatPlaceholder: '输入消息…', send: '发送',
     muteTip: '麦克风', camTip: '摄像头', ttsTip: '朗读翻译', chatTip: '聊天', leaveTip: '离开',
+    handTip: '举手', handUp: '放下手',
   },
 };
 

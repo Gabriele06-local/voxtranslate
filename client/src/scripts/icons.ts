@@ -29,6 +29,10 @@ const PATHS: Record<string, string> = {
     '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   copy:
     '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  hand:
+    '<path d="M18 8.5V4a2 2 0 0 0-4 0v4.5"/><path d="M14 8.5V2a2 2 0 0 0-4 0v6.5"/><path d="M10 8.5V4a2 2 0 0 0-4 0v8.5"/><path d="M22 12.5V10a2 2 0 0 0-4 0v2.5"/><rect x="6" y="12" width="16" height="10" rx="2"/>',
+  'hand-raised':
+    '<path d="M18 8.5V4a2 2 0 0 0-4 0v4.5"/><path d="M14 8.5V2a2 2 0 0 0-4 0v6.5"/><path d="M10 8.5V4a2 2 0 0 0-4 0v8.5"/><path d="M22 12.5V10a2 2 0 0 0-4 0v2.5"/><rect x="6" y="12" width="16" height="10" rx="2"/><circle cx="18" cy="7" r="3" fill="currentColor" stroke="none"/>',
 };
 
 /** Return inline SVG markup for `name`, drawn in `currentColor`. */
