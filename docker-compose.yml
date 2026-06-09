@@ -1,0 +1,21 @@
+services:
+  server:
+    build:
+      context: ./server
+    ports:
+      - "3001:3001"
+    env_file: ./server/.env
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      # PUBLIC_WS_HOST is inlined at build time (static Astro build), so it is
+      # passed as a build argument rather than a runtime environment variable.
+      args:
+        PUBLIC_WS_HOST: localhost:3001
+    ports:
+      - "4321:4321"
+    depends_on:
+      - server
+    restart: unless-stopped

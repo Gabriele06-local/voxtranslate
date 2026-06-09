@@ -1,0 +1,14 @@
+# Railway service config for the VoxTranslate backend.
+# In Railway, set this service's Root Directory to `server` so this file and the
+# Dockerfile are picked up. Set DEEPGRAM_API_KEY and GROQ_API_KEY as service
+# variables (Railway injects PORT automatically).
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10

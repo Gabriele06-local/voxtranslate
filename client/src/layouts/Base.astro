@@ -1,0 +1,65 @@
+---
+const { title = 'VoxTranslate' } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+    <style is:global>
+      :root {
+        --bg: #0c0e14;
+        --surface: #161923;
+        --surface-2: #1c2030;
+        --border: #252836;
+        --text: #e2e4ec;
+        --muted: #6b7089;
+        --accent: #3b82f6;
+        --accent-dim: #1e3a8a;
+        --rec: #ef4444;
+        --success: #22c55e;
+        --radius: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.5;
+      }
+
+      button {
+        font-family: inherit;
+        cursor: pointer;
+      }
+
+      input,
+      select {
+        font-family: inherit;
+      }
+
+      ::selection {
+        background: var(--accent);
+        color: #fff;
+      }
+    </style>
+  </body>
+</html>

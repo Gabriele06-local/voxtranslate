@@ -1,0 +1,19 @@
+# Rust
+/server/target
+
+# Node / Astro
+/client/node_modules
+/client/dist
+/client/.astro
+
+# Env / secrets
+.env
+/server/.env
+/client/.env
+
+# OS / editor
+.DS_Store
+
+# Test artifacts
+/sample.aiff
+/sample.webm
