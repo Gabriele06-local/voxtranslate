@@ -231,12 +231,32 @@ function applyPreToggles(): void {
     localStream.getAudioTracks().forEach((tr) => (tr.enabled = micOn));
     localStream.getVideoTracks().forEach((tr) => (tr.enabled = camOn));
   }
-  // Preview overlay when the camera is off.
+  // Preview overlay when the camera is off: show the Google photo when logged in,
+  // initials otherwise (same as the in-call camera-off cell).
   previewOff.hidden = camOn && hasVideo;
   if (!previewOff.hidden) {
     const name = nameInput.value.trim() || t('namePlaceholder');
-    previewAvatar.textContent = name.slice(0, 2).toUpperCase();
-    previewAvatar.style.background = avatarGradient(name);
+    const avatar =
+      billing && auth.isLoggedIn() ? auth.avatarUrl(auth.getUser()?.avatar_url, 192) : null;
+    if (avatar) {
+      previewAvatar.textContent = '';
+      previewAvatar.style.background = 'none';
+      const img = document.createElement('img');
+      img.className = 'preview-avatar-img';
+      img.referrerPolicy = 'no-referrer';
+      img.alt = '';
+      img.src = avatar;
+      img.addEventListener('error', () => {
+        // Fall back to initials if the photo fails to load.
+        img.remove();
+        previewAvatar.textContent = name.slice(0, 2).toUpperCase();
+        previewAvatar.style.background = avatarGradient(name);
+      });
+      previewAvatar.appendChild(img);
+    } else {
+      previewAvatar.textContent = name.slice(0, 2).toUpperCase();
+      previewAvatar.style.background = avatarGradient(name);
+    }
   }
   preMic.classList.toggle('active-danger', !micOn);
   preMic.innerHTML = icon(micOn ? 'mic' : 'mic-off');
