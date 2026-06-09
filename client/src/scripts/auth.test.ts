@@ -170,6 +170,52 @@ describe('billing data + checkout', () => {
   });
 });
 
+describe('safety + gdpr', () => {
+  it('submitConsent posts and flips consent locally on success', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1, consent_given: false });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson({ consent_given: true })));
+    expect(auth.consentGiven()).toBe(false);
+    expect(await auth.submitConsent(true)).toBe(true);
+    expect(auth.consentGiven()).toBe(true);
+    expect(auth.getUser()?.consent_given).toBe(true);
+  });
+
+  it('submitConsent returns false on rejection', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('no', 403)));
+    expect(await auth.submitConsent(false)).toBe(false);
+    expect(auth.consentGiven()).toBe(false);
+  });
+
+  it('reportUser posts and reports ok/ko', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('reported', 201)));
+    expect(await auth.reportUser({ room: 'r', reason: 'harassment' })).toBe(true);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('no', 500)));
+    expect(await auth.reportUser({ room: 'r', reason: 'x' })).toBe(false);
+  });
+
+  it('exportData returns the document or null', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson({ profile: { email: 'e' } })));
+    expect((await auth.exportData() as any).profile.email).toBe('e');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('no', 500)));
+    expect(await auth.exportData()).toBeNull();
+  });
+
+  it('deleteAccount clears the session on success', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('deleted', 200)));
+    expect(await auth.deleteAccount()).toBe(true);
+    expect(auth.isLoggedIn()).toBe(false);
+  });
+});
+
 describe('formatters', () => {
   it('formats credits as USD', async () => {
     const auth = await fresh();

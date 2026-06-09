@@ -24,6 +24,11 @@ const LANGS = [
         <div id="gsi-button" class="gsi-button"></div>
         <div class="login-or"><span data-i18n="orText"></span></div>
         <button id="guest-btn" class="btn-ghost guest-btn" data-i18n="continueGuest"></button>
+        <p class="legal-footer">
+          <a href="/terms" target="_blank" data-i18n="terms"></a>
+          <a href="/privacy" target="_blank" data-i18n="privacy"></a>
+          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse"></a>
+        </p>
       </div>
     </section>
 
@@ -39,6 +44,7 @@ const LANGS = [
             <span id="account-balance" class="account-balance"></span>
           </div>
           <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits"></button>
+          <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" aria-label="Privacy"></button>
           <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" aria-label="Logout"></button>
         </div>
       </header>
@@ -174,6 +180,61 @@ const LANGS = [
           <button id="tab-usage" class="seg-btn" data-i18n="usageHistory"></button>
         </div>
         <div id="ledger-list" class="ledger-list"></div>
+      </div>
+    </div>
+
+    <!-- ===================== AGE + CONSENT GATE ===================== -->
+    <div id="consent-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow">
+        <span class="card-title" data-i18n="consentTitle"></span>
+        <p class="modal-text" data-i18n="consentText"></p>
+        <label class="consent-check"><input type="checkbox" id="consent-age" /> <span data-i18n="consentAge"></span></label>
+        <label class="consent-check"><input type="checkbox" id="consent-tos" /> <span id="consent-tos-label" data-i18n="consentTos"></span></label>
+        <p id="consent-status" class="status-line"></p>
+        <div class="modal-actions">
+          <button id="consent-decline" class="btn-ghost" data-i18n="decline"></button>
+          <button id="consent-accept" class="btn-primary" data-i18n="agreeContinue"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== REPORT MODAL ===================== -->
+    <div id="report-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow">
+        <div class="modal-head">
+          <span class="card-title" data-i18n="reportTitle"></span>
+          <button id="report-close" class="btn-ghost icon-btn" aria-label="Close"></button>
+        </div>
+        <p class="modal-text"><span data-i18n="reportFor"></span> <strong id="report-target"></strong></p>
+        <div id="report-reasons" class="report-reasons"></div>
+        <p id="report-status" class="status-line"></p>
+      </div>
+    </div>
+
+    <!-- ===================== PRIVACY & DATA MODAL ===================== -->
+    <div id="privacy-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow">
+        <div class="modal-head">
+          <span class="card-title" data-i18n="privacyData"></span>
+          <button id="privacy-close" class="btn-ghost icon-btn" aria-label="Close"></button>
+        </div>
+        <button id="export-data" class="btn-ghost privacy-btn" data-i18n="exportData"></button>
+        <button id="delete-account" class="btn-ghost privacy-btn danger" data-i18n="deleteAccount"></button>
+        <p id="privacy-status" class="status-line"></p>
+        <div class="legal-links">
+          <a href="/terms" target="_blank" data-i18n="terms"></a> ·
+          <a href="/privacy" target="_blank" data-i18n="privacy"></a> ·
+          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse"></a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== COOKIE / PROCESSING BANNER ===================== -->
+    <div id="cookie-banner" class="cookie-banner hidden">
+      <span id="cookie-text" class="cookie-text" data-i18n="cookieText"></span>
+      <div class="cookie-actions">
+        <a href="/privacy" target="_blank" class="cookie-link" data-i18n="privacy"></a>
+        <button id="cookie-accept" class="btn-primary cookie-btn" data-i18n="gotIt"></button>
       </div>
     </div>
 
@@ -429,6 +490,48 @@ const LANGS = [
     .ledger-list :global(.ledger-amount.pos) { color: var(--success); }
     .ledger-list :global(.ledger-amount.neg) { color: var(--danger); }
     .ledger-list :global(.ledger-empty) { color: var(--muted); text-align: center; padding: 12px 0; font-size: 0.85rem; }
+
+    /* ---------- Consent / report / privacy / cookie ---------- */
+    .consent-check { display: flex; align-items: flex-start; gap: 9px; text-align: left; font-size: 0.88rem; color: var(--text); cursor: pointer; }
+    .consent-check input { width: auto; margin-top: 2px; flex: none; }
+    .report-reasons { display: flex; flex-direction: column; gap: 8px; }
+    .report-reasons :global(.report-reason) { width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; }
+    .report-reasons :global(.report-reason:hover) { border-color: var(--danger); }
+    .privacy-btn { width: 100%; min-height: 44px; text-align: center; }
+    .privacy-btn.danger { color: var(--danger); border-color: var(--danger); }
+    .legal-links { font-size: 0.8rem; color: var(--muted); text-align: center; }
+    .legal-links a { color: var(--muted); text-decoration: underline; }
+    .legal-links a:hover { color: var(--text); }
+    .account-bar .icon-btn :global(.ico) { width: 16px; height: 16px; }
+    .cookie-banner { position: fixed; bottom: 0; left: 0; right: 0; z-index: 60; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border); }
+    .cookie-text { font-size: 0.82rem; color: var(--muted); max-width: 640px; }
+    .cookie-actions { display: flex; align-items: center; gap: 12px; }
+    .cookie-link { font-size: 0.82rem; color: var(--accent); text-decoration: underline; }
+    .cookie-btn { width: auto; min-height: 38px; padding: 0 18px; }
+
+    /* Per-cell report/block buttons (created in JS). */
+    .video-grid :global(.cell-actions) { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    .video-grid :global(.video-cell:hover .cell-actions) { opacity: 1; }
+    .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
+    .video-grid :global(.cell-action:hover) { background: var(--danger); }
+    .video-grid :global(.cell-action .ico) { width: 15px; height: 15px; }
+    /* Locally-blocked peer: dim the cell and keep its block button highlighted. */
+    .video-grid :global(.video-cell.blocked) { filter: grayscale(1) brightness(0.5); }
+    .video-grid :global(.video-cell.blocked .cell-actions) { opacity: 1; }
+
+    /* Transient toast (moderation warnings, etc.), created in JS on document.body. */
+    :global(.vox-toast) {
+      position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 16px);
+      z-index: 80; max-width: min(90vw, 420px); padding: 12px 18px; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      font-size: 0.9rem; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none;
+    }
+    :global(.vox-toast.show) { opacity: 1; transform: translate(-50%, 0); }
+
+    /* Footer legal links on login/home. */
+    .legal-footer { text-align: center; padding: 12px; font-size: 0.78rem; color: var(--muted); }
+    .legal-footer a { color: var(--muted); text-decoration: underline; margin: 0 4px; }
 
     /* Google avatar in a video cell (overrides the gradient initials block). */
     /* Camera-off avatar: a centered, proportionate circle (its parent .avatar is

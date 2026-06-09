@@ -36,9 +36,15 @@ const ledgerList = $('ledger-list');
 const modalBalance = $('modal-balance');
 const buyStatus = $('buy-status');
 const exhaustedModal = $('exhausted-modal');
+const consentModal = $('consent-modal');
+const reportModal = $('report-modal');
+const privacyModal = $('privacy-modal');
+const cookieBanner = $('cookie-banner');
 
 let billing = false; // accounts/credits enabled on this backend
 let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
+const blockedPeers = new Set<string>(); // peers blocked locally (muted + hidden)
+let reportTargetId = ''; // peer currently being reported
 
 // ---- Home refs -------------------------------------------------------------
 const roomInput = $<HTMLInputElement>('room');
@@ -499,11 +505,24 @@ async function handleServer(msg: any): Promise<void> {
       show(exhaustedModal, true);
       break;
     }
+    // A transcript of ours tripped the moderation filter — the server dropped
+    // that line (peers never saw it) and warned us. Surface it as a toast.
+    case 'moderation_warning':
+      toast(t('moderationBlocked'));
+      break;
     case 'error':
       if (msg.code === 'insufficient_balance') {
         leaveCall();
         homeStatusMsg(t('outOfCredits'), true);
         if (billing) openBuyModal();
+      } else if (msg.code === 'login_required') {
+        // Public rooms require an account; bounce a guest back to the login gate.
+        leaveCall();
+        homeStatusMsg(t('publicNeedsLogin'), true);
+        if (billing) showLogin();
+      } else if (msg.code === 'banned') {
+        leaveCall();
+        homeStatusMsg(msg.message || t('bannedMsg'), true);
       } else if (msg.message) {
         // Non-fatal; surface transiently in the call header area.
         callVis.textContent = msg.message;
@@ -572,7 +591,34 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   subs.className = 'subtitle-area';
   cell.appendChild(subs);
 
+  // Per-peer moderation controls (remote peers only): report to the server
+  // (needs an account) and a local block (mute + hide, no account needed).
+  if (!isSelf) {
+    const actions = document.createElement('div');
+    actions.className = 'cell-actions';
+    if (billing && auth.isLoggedIn()) {
+      const reportBtn = document.createElement('button');
+      reportBtn.className = 'cell-action';
+      reportBtn.type = 'button';
+      reportBtn.title = t('reportTip');
+      reportBtn.setAttribute('aria-label', t('reportTip'));
+      reportBtn.innerHTML = icon('flag', 15);
+      reportBtn.addEventListener('click', () => openReport(id, peerNames.get(id)?.name || name));
+      actions.appendChild(reportBtn);
+    }
+    const blockBtn = document.createElement('button');
+    blockBtn.className = 'cell-action';
+    blockBtn.type = 'button';
+    blockBtn.title = t('blockTip');
+    blockBtn.setAttribute('aria-label', t('blockTip'));
+    blockBtn.innerHTML = icon('block', 15);
+    blockBtn.addEventListener('click', () => toggleBlock(id));
+    actions.appendChild(blockBtn);
+    cell.appendChild(actions);
+  }
+
   videoGrid.appendChild(cell);
+  if (blockedPeers.has(id)) applyBlocked(id);
   updateGridCount();
 }
 
@@ -647,6 +693,10 @@ function applyAudioMode(): void {
     if (!video) return;
     if (id === myId) {
       video.muted = true;
+      return;
+    }
+    if (blockedPeers.has(id)) {
+      video.muted = true; // locally blocked → always silent
       return;
     }
     const peerLang = peerNames.get(id)?.lang;
@@ -854,9 +904,40 @@ function enterHome(): void {
     const u = auth.getUser()!;
     if (u.name && !nameInput.value) nameInput.value = u.name;
     renderAccount();
-    void auth.refreshMe().then(() => renderAccount());
+    void auth.refreshMe().then(() => {
+      renderAccount();
+      ensureConsent();
+    });
+    ensureConsent();
   }
+  updatePublicGate();
   startLobby();
+}
+
+/// Logged-in users must accept age + ToS before using the app.
+function ensureConsent(): void {
+  if (billing && auth.isLoggedIn() && !auth.consentGiven()) {
+    show(consentModal, true);
+  }
+}
+
+/// Public rooms require an account when billing is on; disable the option for
+/// guests and steer them to a private room.
+function updatePublicGate(): void {
+  const guest = billing && !auth.isLoggedIn();
+  const pubBtn = visGroup.querySelector('.seg-btn[data-vis="public"]') as HTMLButtonElement | null;
+  if (!pubBtn) return;
+  pubBtn.disabled = guest;
+  pubBtn.classList.toggle('disabled', guest);
+  if (guest && visibilityPublic) {
+    // Force private for guests.
+    visibilityPublic = false;
+    visGroup.querySelectorAll('.seg-btn').forEach((b) =>
+      b.classList.toggle('active', (b as HTMLElement).dataset.vis === 'private'),
+    );
+    updateVisHint();
+  }
+  visHint.textContent = guest ? t('publicNeedsLogin') : visibilityPublic ? '' : t('privateHint');
 }
 
 function renderAccount(): void {
@@ -1047,6 +1128,149 @@ $('exhausted-buy').addEventListener('click', () => {
   }
 });
 
+// ============================================================================
+// Trust & safety + GDPR
+// ============================================================================
+function toast(msg: string): void {
+  const el = document.createElement('div');
+  el.className = 'vox-toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 3500);
+}
+
+// --- Age + ToS consent gate ---
+function syncConsentAccept(): void {
+  const ok =
+    $<HTMLInputElement>('consent-age').checked && $<HTMLInputElement>('consent-tos').checked;
+  $<HTMLButtonElement>('consent-accept').disabled = !ok;
+}
+$('consent-age').addEventListener('change', syncConsentAccept);
+$('consent-tos').addEventListener('change', syncConsentAccept);
+$('consent-accept').addEventListener('click', async () => {
+  const status = $('consent-status');
+  status.textContent = '';
+  if (await auth.submitConsent(true)) {
+    show(consentModal, false);
+    renderAccount();
+  } else {
+    status.textContent = t('consentFailed');
+    status.classList.add('error');
+  }
+});
+$('consent-decline').addEventListener('click', () => {
+  show(consentModal, false);
+  auth.clearSession();
+  accountBar.classList.add('hidden');
+  showLogin();
+});
+
+// --- Privacy & data (GDPR) ---
+$('privacy-open').addEventListener('click', () => {
+  $('privacy-status').textContent = '';
+  show(privacyModal, true);
+});
+$('privacy-close').addEventListener('click', () => show(privacyModal, false));
+privacyModal.addEventListener('click', (e) => {
+  if (e.target === privacyModal) show(privacyModal, false);
+});
+$('export-data').addEventListener('click', async () => {
+  const data = await auth.exportData();
+  if (!data) {
+    $('privacy-status').textContent = t('exportFailed');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'voxtranslate-data.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+$('delete-account').addEventListener('click', async () => {
+  if (!confirm(t('deleteConfirm'))) return;
+  if (await auth.deleteAccount()) {
+    show(privacyModal, false);
+    accountBar.classList.add('hidden');
+    showLogin();
+  } else {
+    $('privacy-status').textContent = t('deleteFailed');
+  }
+});
+
+// --- Report a peer ---
+const REPORT_REASONS = ['harassment', 'hate', 'sexual', 'spam', 'other'];
+function openReport(peerId: string, name: string): void {
+  reportTargetId = peerId;
+  $('report-target').textContent = name;
+  $('report-status').textContent = '';
+  const list = $('report-reasons');
+  list.innerHTML = '';
+  for (const r of REPORT_REASONS) {
+    const btn = document.createElement('button');
+    btn.className = 'report-reason';
+    btn.type = 'button';
+    btn.textContent = t(`reason_${r}`);
+    btn.addEventListener('click', () => void submitReport(r));
+    list.appendChild(btn);
+  }
+  show(reportModal, true);
+}
+async function submitReport(reason: string): Promise<void> {
+  const name = peerNames.get(reportTargetId)?.name || '';
+  const ok = await auth.reportUser({
+    room: session?.room || '',
+    reported_peer_id: reportTargetId,
+    reported_name: name,
+    reason,
+  });
+  $('report-status').textContent = ok ? t('reportThanks') : t('reportFailed');
+  if (ok) setTimeout(() => show(reportModal, false), 1200);
+}
+$('report-close').addEventListener('click', () => show(reportModal, false));
+reportModal.addEventListener('click', (e) => {
+  if (e.target === reportModal) show(reportModal, false);
+});
+
+// --- Block a peer locally (mute + hide for me only) ---
+function toggleBlock(peerId: string): void {
+  if (blockedPeers.has(peerId)) blockedPeers.delete(peerId);
+  else blockedPeers.add(peerId);
+  applyBlocked(peerId);
+  applyAudioMode();
+}
+function applyBlocked(peerId: string): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peerId)}"]`);
+  if (!cell) return;
+  const blocked = blockedPeers.has(peerId);
+  cell.classList.toggle('blocked', blocked);
+  setCameraOff(peerId, blocked || (peerCamOff.get(peerId) ?? false));
+}
+
+// --- Cookie / processing banner ---
+function initCookieBanner(): void {
+  let accepted = false;
+  try {
+    accepted = localStorage.getItem('vox.cookie') === '1';
+  } catch {
+    /* storage blocked */
+  }
+  if (!accepted) show(cookieBanner, true);
+  $('cookie-accept').addEventListener('click', () => {
+    try {
+      localStorage.setItem('vox.cookie', '1');
+    } catch {
+      /* ignore */
+    }
+    show(cookieBanner, false);
+  });
+}
+
 // ---- Boot ------------------------------------------------------------------
 window.addEventListener('resize', layoutVideos);
 window.addEventListener('orientationchange', () => setTimeout(layoutVideos, 200));
@@ -1055,4 +1279,8 @@ $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
 $('logout-btn').innerHTML = icon('leave', 16);
 $('buy-close').innerHTML = icon('close', 16);
+$('privacy-open').innerHTML = icon('shield', 16);
+$('report-close').innerHTML = icon('close', 16);
+$('privacy-close').innerHTML = icon('close', 16);
+initCookieBanner();
 void boot();

@@ -393,12 +393,12 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let billed_user = authed.as_ref().map(|a| a.user_id);
     let avatar_url = authed.and_then(|a| a.avatar_url);
 
-    // Accountability: when accounts are configured, public rooms require a
-    // signed-in user. Guests can still use private rooms via an invite link.
-    if matches!(visibility, Visibility::Public)
-        && billed_user.is_none()
-        && state.config.billing.is_some()
-    {
+    // Accountability: when accounts are live (the DB is connected, so users can
+    // actually sign in), public rooms require a signed-in user. Guests can still
+    // use private rooms via an invite link. We key off the live pool rather than
+    // mere config so the degraded guest-only fallback (billing configured but DB
+    // unreachable) doesn't lock everyone out of public rooms.
+    if matches!(visibility, Visibility::Public) && billed_user.is_none() && state.pool.is_some() {
         let _ = ws_tx
             .send(Message::Text(
                 ServerMessage::Error {

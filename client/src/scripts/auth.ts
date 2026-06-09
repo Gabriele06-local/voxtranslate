@@ -14,6 +14,8 @@ export interface User {
   name: string;
   avatar_url?: string | null;
   balance: number;
+  /** True once the user confirmed 18+ and accepted the ToS/Privacy. */
+  consent_given?: boolean;
 }
 
 export interface CreditPackage {
@@ -193,6 +195,54 @@ export async function startCheckout(packageId: string): Promise<string> {
   if (!res.ok) throw new Error(`checkout failed (${res.status})`);
   const data = (await res.json()) as { url: string };
   return data.url;
+}
+
+/** Whether the logged-in user has accepted age + ToS/Privacy. */
+export function consentGiven(): boolean {
+  return !!user?.consent_given;
+}
+
+/** Record age (18+) + ToS/Privacy acceptance. */
+export async function submitConsent(ageConfirmed: boolean): Promise<boolean> {
+  const res = await fetch(`${HTTP_BASE}/api/user/consent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ age_confirmed: ageConfirmed }),
+  });
+  if (res.ok && user) {
+    user = { ...user, consent_given: true };
+    store().setItem(USER_KEY, JSON.stringify(user));
+  }
+  return res.ok;
+}
+
+/** File an abuse report against a peer. */
+export async function reportUser(payload: {
+  room: string;
+  reported_peer_id?: string;
+  reported_name?: string;
+  reason: string;
+  transcript_excerpt?: string;
+}): Promise<boolean> {
+  const res = await fetch(`${HTTP_BASE}/api/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  return res.ok;
+}
+
+/** GDPR data export — returns the user's full data document, or null. */
+export async function exportData(): Promise<unknown | null> {
+  const res = await fetch(`${HTTP_BASE}/api/user/data`, { headers: authHeaders() });
+  return res.ok ? res.json() : null;
+}
+
+/** GDPR erasure — deletes the account; clears the local session on success. */
+export async function deleteAccount(): Promise<boolean> {
+  const res = await fetch(`${HTTP_BASE}/api/user`, { method: 'DELETE', headers: authHeaders() });
+  if (res.ok) clearSession();
+  return res.ok;
 }
 
 /** Format a credit balance as USD (the credit unit is 1 credit = $1). */
