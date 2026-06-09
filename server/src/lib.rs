@@ -153,11 +153,20 @@ pub async fn serve() {
     };
 
     let port = config.port;
-    let state = match AppState::init(config).await {
+    // Resilient startup: if billing is configured but the database can't be
+    // reached/migrated, log it and fall back to guest-only mode instead of
+    // crashing — the core call/translation features stay up. (For Supabase,
+    // DATABASE_URL must be the IPv4 *connection pooler*, not the direct host.)
+    let state = match AppState::init(config.clone()).await {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!("startup failed: {e}");
-            std::process::exit(1);
+            tracing::error!(
+                "billing/database init failed ({e}); falling back to GUEST-ONLY mode \
+                 — check DATABASE_URL (Supabase: use the IPv4 connection pooler)"
+            );
+            let mut guest = config;
+            guest.billing = None;
+            AppState::new(guest)
         }
     };
 
