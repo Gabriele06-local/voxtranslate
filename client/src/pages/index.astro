@@ -194,18 +194,19 @@ const LANGS = [
       display: flex; flex-direction: column; gap: 14px;
     }
     .rooms-list { display: flex; flex-direction: column; gap: 10px; }
-    .room-item {
+    /* Lobby items are created in JS — style via :global() under .rooms-list. */
+    .rooms-list :global(.room-item) {
       width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border);
       border-radius: 10px; padding: 12px 14px; transition: all 0.15s;
     }
-    .room-item:hover { border-color: var(--accent); }
-    .room-item:active { transform: translateY(1px); }
-    .room-item-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .room-item-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
-    .room-item-count { font-size: 0.82rem; color: var(--muted); flex: none; }
-    .room-item-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .chip { font-size: 0.78rem; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
-    .lobby-empty { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
+    .rooms-list :global(.room-item:hover) { border-color: var(--accent); }
+    .rooms-list :global(.room-item:active) { transform: translateY(1px); }
+    .rooms-list :global(.room-item-main) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .rooms-list :global(.room-item-code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
+    .rooms-list :global(.room-item-count) { font-size: 0.82rem; color: var(--muted); flex: none; display: inline-flex; align-items: center; gap: 5px; }
+    .rooms-list :global(.room-item-members) { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .rooms-list :global(.chip) { font-size: 0.78rem; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
+    .rooms-list :global(.lobby-empty) { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
 
     /* ---------- Pre-join ---------- */
     #prejoin { align-items: center; justify-content: center; padding: 20px; }
@@ -237,30 +238,33 @@ const LANGS = [
        column/row tracks by peer count + orientation. */
     .video-stage { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
     .video-grid { display: grid; gap: 6px; width: 100%; height: 100%; }
-    .video-grid[data-peers="3"] .video-cell:nth-child(3) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
-
-    .video-cell { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; }
-    .video-cell video { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .video-cell.self video { transform: scaleX(-1); }
-    .video-cell.self { outline: 2px solid var(--accent); outline-offset: -2px; }
-    .avatar { position: absolute; inset: 0; display: grid; place-items: center; }
-    .avatar-initials { font-size: 2.4rem; font-weight: 700; color: rgba(255,255,255,0.9); }
-    .video-overlay {
+    /* Video cells (and their children) are created in JS, so they don't get
+       Astro's scoping attribute — target them with :global() under .video-grid.
+       Without this the cell/video styles never apply and the raw 1280x720 video
+       overflows the cell (clipped → "cut off"). */
+    .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
+    .video-grid :global(.video-cell) { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; min-width: 0; }
+    .video-grid :global(.video-cell video) { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .video-grid :global(.video-cell.self video) { transform: scaleX(-1); }
+    .video-grid :global(.video-cell.self) { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .video-grid :global(.avatar) { position: absolute; inset: 0; display: grid; place-items: center; }
+    .video-grid :global(.avatar-initials) { font-size: 2.4rem; font-weight: 700; color: rgba(255, 255, 255, 0.9); }
+    .video-grid :global(.video-overlay) {
       position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 6px;
-      background: rgba(0,0,0,0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
+      background: rgba(0, 0, 0, 0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
     }
-    .peer-name { font-size: 0.8rem; font-weight: 600; color: #fff; }
-    .peer-lang { font-size: 0.72rem; color: rgba(255,255,255,0.75); }
-    .mute-indicator { font-size: 0.8rem; }
+    .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; }
+    .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
+    .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
 
-    .subtitle-area { position: absolute; bottom: 8px; left: 0; right: 0; padding: 0 10px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-    .subtitle {
-      background: rgba(0,0,0,0.75); color: #fff; padding: 5px 12px; border-radius: 6px;
+    .video-grid :global(.subtitle-area) { position: absolute; bottom: 8px; left: 0; right: 0; padding: 0 10px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+    .video-grid :global(.subtitle) {
+      background: rgba(0, 0, 0, 0.75); color: #fff; padding: 5px 12px; border-radius: 6px;
       max-width: 92%; text-align: center; backdrop-filter: blur(4px);
     }
-    .subtitle-interim { opacity: 0.7; font-style: italic; }
-    .subtitle-translation { display: block; font-weight: 500; font-size: 0.9rem; }
-    .subtitle-original { display: block; font-size: 0.72rem; opacity: 0.6; margin-top: 2px; }
+    .video-grid :global(.subtitle-interim) { opacity: 0.7; font-style: italic; }
+    .video-grid :global(.subtitle-translation) { display: block; font-weight: 500; font-size: 0.9rem; }
+    .video-grid :global(.subtitle-original) { display: block; font-size: 0.72rem; opacity: 0.6; margin-top: 2px; }
 
     .control-bar {
       flex: none;
@@ -283,12 +287,10 @@ const LANGS = [
       display: flex; align-items: center; justify-content: center;
     }
 
-    /* ---------- Icons (inline SVG) ---------- */
-    .ico { display: block; pointer-events: none; }
+    /* ---------- Icons (inline SVG, injected in JS → :global) ---------- */
+    :global(.ico) { display: block; pointer-events: none; }
     .icon-btn { display: grid; place-items: center; }
-    .icon-btn .ico { width: 18px; height: 18px; }
-    .mute-indicator { color: var(--danger); display: inline-flex; }
-    .room-item-count { display: inline-flex; align-items: center; gap: 5px; }
+    .icon-btn :global(.ico) { width: 18px; height: 18px; }
     .send-btn { width: auto; min-height: 44px; padding: 0 16px; display: grid; place-items: center; }
 
     /* ---------- Chat ---------- */
@@ -318,7 +320,7 @@ const LANGS = [
       }
       .chat-panel.closed { margin-right: 0; }
       .chat-panel.open { transform: translateY(0); }
-      .video-grid[data-peers="3"] .video-cell:nth-child(3) { max-width: 100%; }
+      .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
     }
   </style>
 

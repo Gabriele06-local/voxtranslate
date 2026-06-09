@@ -39,6 +39,12 @@ const { title = 'VoxTranslate' } = Astro.props;
         box-sizing: border-box;
       }
 
+      /* The `hidden` attribute must win over component `display` rules
+         (e.g. avatar/mute-indicator/chat-badge toggled via el.hidden in JS). */
+      [hidden] {
+        display: none !important;
+      }
+
       html,
       body {
         margin: 0;
