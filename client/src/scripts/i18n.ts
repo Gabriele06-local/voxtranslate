@@ -33,6 +33,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: 'Usage', outOfCredits: 'Out of credits',
     outOfCreditsText: 'Your speaking was paused. Buy credits to keep talking — the call stays connected.',
     dismiss: 'Dismiss', lowBalanceWarn: 'Low balance', noActivity: 'No activity yet',
+    checkoutFailed: 'Checkout unavailable — please try again later',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -51,6 +52,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: 'Utilizzo', outOfCredits: 'Crediti esauriti',
     outOfCreditsText: 'Il tuo audio è in pausa. Acquista crediti per continuare a parlare — la chiamata resta attiva.',
     dismiss: 'Chiudi', lowBalanceWarn: 'Saldo basso', noActivity: 'Ancora nessuna attività',
+    checkoutFailed: 'Checkout non disponibile — riprova più tardi',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -69,6 +71,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: 'Uso', outOfCredits: 'Sin créditos',
     outOfCreditsText: 'Tu voz se ha pausado. Compra créditos para seguir hablando — la llamada sigue conectada.',
     dismiss: 'Cerrar', lowBalanceWarn: 'Saldo bajo', noActivity: 'Aún no hay actividad',
+    checkoutFailed: 'Pago no disponible — inténtalo de nuevo más tarde',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -87,6 +90,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: 'Usage', outOfCredits: 'Plus de crédits',
     outOfCreditsText: "Votre voix est en pause. Achetez des crédits pour continuer — l'appel reste connecté.",
     dismiss: 'Fermer', lowBalanceWarn: 'Solde faible', noActivity: 'Aucune activité',
+    checkoutFailed: 'Paiement indisponible — réessayez plus tard',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -105,6 +109,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: 'Nutzung', outOfCredits: 'Guthaben aufgebraucht',
     outOfCreditsText: 'Deine Sprache wurde pausiert. Kaufe Guthaben, um weiterzusprechen — der Anruf bleibt verbunden.',
     dismiss: 'Schließen', lowBalanceWarn: 'Niedriges Guthaben', noActivity: 'Noch keine Aktivität',
+    checkoutFailed: 'Checkout nicht verfügbar — bitte später erneut versuchen',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -123,6 +128,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: 'Uso', outOfCredits: 'Sem créditos',
     outOfCreditsText: 'Sua voz foi pausada. Compre créditos para continuar falando — a chamada permanece conectada.',
     dismiss: 'Fechar', lowBalanceWarn: 'Saldo baixo', noActivity: 'Nenhuma atividade ainda',
+    checkoutFailed: 'Checkout indisponível — tente novamente mais tarde',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -141,6 +147,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: '利用履歴', outOfCredits: 'クレジット不足',
     outOfCreditsText: '発話が一時停止されました。クレジットを購入すると続けられます — 通話は接続されたままです。',
     dismiss: '閉じる', lowBalanceWarn: '残高わずか', noActivity: 'まだ利用履歴はありません',
+    checkoutFailed: '決済を開始できません — 後でもう一度お試しください',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -159,6 +166,7 @@ export const I18N: Record<string, Dict> = {
     usageHistory: '用量', outOfCredits: '积分用尽',
     outOfCreditsText: '你的语音已暂停。购买积分即可继续通话 — 通话保持连接。',
     dismiss: '关闭', lowBalanceWarn: '余额不足', noActivity: '暂无活动',
+    checkoutFailed: '无法发起结账 — 请稍后重试',
   },
 };
 

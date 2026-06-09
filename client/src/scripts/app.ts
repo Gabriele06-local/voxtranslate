@@ -34,6 +34,7 @@ const buyModal = $('buy-modal');
 const packagesList = $('packages-list');
 const ledgerList = $('ledger-list');
 const modalBalance = $('modal-balance');
+const buyStatus = $('buy-status');
 const exhaustedModal = $('exhausted-modal');
 
 let billing = false; // accounts/credits enabled on this backend
@@ -908,6 +909,8 @@ $('logout-btn').addEventListener('click', () => {
 // --- Buy-credits modal ---
 function openBuyModal(): void {
   show(buyModal, true);
+  buyStatus.textContent = '';
+  buyStatus.classList.remove('error');
   const u = auth.getUser();
   if (u) modalBalance.textContent = auth.formatCredits(u.balance);
   void renderPackages();
@@ -940,9 +943,16 @@ async function renderPackages(): Promise<void> {
 
 async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
+  buyStatus.textContent = '';
+  buyStatus.classList.remove('error');
   try {
     location.href = await auth.startCheckout(pkgId);
-  } catch {
+  } catch (e) {
+    // Surface the failure instead of doing nothing (e.g. Stripe rejected the
+    // price — common when the configured price IDs don't match the key's mode).
+    console.error('checkout failed:', e);
+    buyStatus.textContent = t('checkoutFailed');
+    buyStatus.classList.add('error');
     btn.disabled = false;
   }
 }
@@ -955,7 +965,10 @@ function selectTab(which: 'history' | 'usage'): void {
 
 async function loadLedger(which: 'history' | 'usage'): Promise<void> {
   ledgerList.innerHTML = '';
-  const rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
+  let rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
+  // "Crediti" shows money in (welcome + purchases); per-call usage lives in the
+  // "Utilizzo" tab, so don't repeat each speaking-time deduction here.
+  if (which === 'history') rows = rows.filter((r) => r.kind !== 'usage');
   if (!rows.length) {
     const empty = document.createElement('div');
     empty.className = 'ledger-empty';
