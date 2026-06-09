@@ -103,7 +103,7 @@ const LANGS = [
           <button id="call-room" class="room-badge mono" title="Copy"></button>
           <span id="call-vis" class="vis-badge"></span>
         </header>
-        <div id="video-grid" class="video-grid" data-peers="1"></div>
+        <div class="video-stage"><div id="video-grid" class="video-grid" data-peers="1"></div></div>
         <div class="control-bar">
           <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
           <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
@@ -222,24 +222,23 @@ const LANGS = [
     .prejoin-actions .btn-primary { flex: 1; }
 
     /* ---------- Call ---------- */
-    #call { flex-direction: row; }
-    .call-main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 10px; gap: 8px; }
-    .call-header { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+    /* Lock the call to the viewport so the page never scrolls in Y. */
+    #call { flex-direction: row; position: fixed; inset: 0; height: 100dvh; overflow: hidden; background: var(--bg); z-index: 10; }
+    .call-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px; gap: 8px; overflow: hidden; }
+    .call-header { flex: none; display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
     .room-badge {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em;
       text-transform: uppercase; background: transparent; border: none; color: var(--text); padding: 0; cursor: pointer;
     }
 
-    .video-grid {
-      display: grid; gap: 4px; flex: 1; background: #000; border-radius: 12px; overflow: hidden; min-height: 0;
-    }
-    .video-grid[data-peers="1"] { grid-template: 1fr / 1fr; }
-    .video-grid[data-peers="2"] { grid-template: 1fr / 1fr 1fr; }
-    .video-grid[data-peers="3"] { grid-template: 1fr 1fr / 1fr 1fr; }
+    /* The stage fills the space between header and control bar and centers the
+       grid both axes. The grid's pixel size (and column/row tracks) is computed
+       in JS to the largest 16:9-tiled box that fits — videos keep proportions. */
+    .video-stage { flex: 1; min-height: 0; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .video-grid { display: grid; gap: 6px; max-width: 100%; max-height: 100%; }
     .video-grid[data-peers="3"] .video-cell:nth-child(3) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
-    .video-grid[data-peers="4"] { grid-template: 1fr 1fr / 1fr 1fr; }
 
-    .video-cell { position: relative; background: var(--surface); overflow: hidden; min-height: 0; }
+    .video-cell { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; }
     .video-cell video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .video-cell.self video { transform: scaleX(-1); }
     .video-cell.self { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -263,6 +262,7 @@ const LANGS = [
     .subtitle-original { display: block; font-size: 0.72rem; opacity: 0.6; margin-top: 2px; }
 
     .control-bar {
+      flex: none;
       display: flex; justify-content: center; gap: 10px; padding: 10px 16px;
       background: rgba(19,20,28,0.8); backdrop-filter: blur(12px); border: 1px solid var(--border);
       border-radius: 16px; margin: 0 auto; width: fit-content; max-width: 100%;
@@ -298,12 +298,13 @@ const LANGS = [
     .chat-panel.closed { margin-right: -321px; }
     .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .chat-messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
-    .chat-msg { padding: 8px 12px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; }
-    .chat-msg-mine { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-dim); }
-    .chat-msg-other { align-self: flex-start; background: var(--surface-elevated); border: 1px solid var(--border); }
-    .chat-sender { font-size: 0.74rem; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
-    .chat-text { line-height: 1.4; word-wrap: break-word; }
-    .chat-original { font-size: 0.74rem; color: var(--muted); margin-top: 4px; font-style: italic; }
+    /* Chat messages are created in JS, so they don't receive Astro's scoping
+       attribute — target them with :global() under .chat-messages. */
+    .chat-messages :global(.chat-msg) { padding: 8px 12px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
+    .chat-messages :global(.chat-msg-mine) { align-self: flex-end; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--accent-dim); }
+    .chat-messages :global(.chat-msg-other) { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); }
+    .chat-messages :global(.chat-sender) { font-weight: 700; color: var(--accent); margin-right: 6px; }
+    .chat-messages :global(.chat-text) { color: var(--text); }
     .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
 

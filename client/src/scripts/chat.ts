@@ -35,13 +35,15 @@ export class ChatManager {
     const msg = document.createElement('div');
     msg.className = `chat-msg ${isMine ? 'chat-msg-mine' : 'chat-msg-other'}`;
 
+    // Sender name (bold) and message rendered inline on the same line.
     if (!isMine) {
-      const sender = document.createElement('div');
+      const sender = document.createElement('span');
       sender.className = 'chat-sender';
       sender.textContent = data.sender_name;
       msg.appendChild(sender);
+      msg.appendChild(document.createTextNode(' '));
     }
-    const text = document.createElement('div');
+    const text = document.createElement('span');
     text.className = 'chat-text';
     text.textContent = translated;
     msg.appendChild(text);

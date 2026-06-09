@@ -432,6 +432,49 @@ function removeCell(id: string): void {
 
 function updateGridCount(): void {
   videoGrid.dataset.peers = String(videoGrid.querySelectorAll('.video-cell').length);
+  layoutVideos();
+}
+
+// Size the video grid to the largest 16:9-tiled box that fits the stage, so
+// tiles keep their proportions and the whole layout stays centered with no
+// vertical scroll. Columns/rows adapt to count and orientation (portrait stacks).
+function layoutVideos(): void {
+  const stage = document.querySelector('.video-stage') as HTMLElement | null;
+  if (!stage) return;
+  const n = Math.max(videoGrid.querySelectorAll('.video-cell').length, 1);
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  if (sw === 0 || sh === 0) return;
+
+  let cols: number;
+  let rows: number;
+  if (n <= 1) {
+    cols = 1;
+    rows = 1;
+  } else if (n === 2) {
+    if (sw >= sh) {
+      cols = 2;
+      rows = 1;
+    } else {
+      cols = 1;
+      rows = 2;
+    }
+  } else {
+    cols = 2;
+    rows = 2;
+  }
+
+  const gridAR = (cols * 16) / (rows * 9);
+  let w = sw;
+  let h = sw / gridAR;
+  if (h > sh) {
+    h = sh;
+    w = sh * gridAR;
+  }
+  videoGrid.style.width = `${Math.floor(w)}px`;
+  videoGrid.style.height = `${Math.floor(h)}px`;
+  videoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 }
 
 function attachStream(id: string, stream: MediaStream): void {
@@ -555,6 +598,8 @@ function toggleChat(force?: boolean): void {
   chatPanel.classList.toggle('closed', !open);
   chat?.setOpen(open);
   if (open) chatInput.focus();
+  // The desktop sidebar narrows call-main — re-fit after the transition.
+  setTimeout(layoutVideos, 320);
 }
 
 function sendChat(): void {
@@ -628,6 +673,8 @@ callRoom.addEventListener('click', async () => {
 });
 
 // ---- Boot ------------------------------------------------------------------
+window.addEventListener('resize', layoutVideos);
+window.addEventListener('orientationchange', () => setTimeout(layoutVideos, 200));
 $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
