@@ -66,7 +66,7 @@ let lobbyTimer: number | null = null;
 let visibilityPublic = true;
 let micOn = true;
 let camOn = true;
-let ttsOn = false;
+let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
 let manualClose = false;
 
 const peerNames = new Map<string, { name: string; lang: string }>();
@@ -369,7 +369,9 @@ async function handleServer(msg: any): Promise<void> {
       const myLang = session?.lang || 'en';
       const text = msg.translations?.[myLang] ?? msg.original;
       showSubtitle(msg.speaker_id, text, false, msg.original);
-      if (ttsOn && msg.speaker_id !== myId) speak(text, myLang);
+      // Speak only foreign-language speakers (same-language → you hear their
+      // real voice). Their original WebRTC audio is muted by applyAudioMode().
+      if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang) speak(text, myLang);
       break;
     }
   }
@@ -440,6 +442,26 @@ function attachStream(id: string, stream: MediaStream): void {
   void video.play().catch(() => {});
   const hasVideo = stream.getVideoTracks().length > 0;
   if (id !== myId) setCameraOff(id, !hasVideo);
+  applyAudioMode();
+}
+
+// "Translated voice" mode: when on, mute the original WebRTC audio of peers who
+// speak a different language (you'll hear their TTS translation instead), so the
+// original and translated voices never overlap. Same-language peers keep their
+// real audio (no robotic dubbing of your own language). Self is always muted.
+function applyAudioMode(): void {
+  const myLang = session?.lang;
+  videoGrid.querySelectorAll<HTMLElement>('.video-cell').forEach((cell) => {
+    const id = cell.dataset.peer || '';
+    const video = cell.querySelector('video') as HTMLVideoElement | null;
+    if (!video) return;
+    if (id === myId) {
+      video.muted = true;
+      return;
+    }
+    const peerLang = peerNames.get(id)?.lang;
+    video.muted = !!(ttsOn && peerLang && myLang && peerLang !== myLang);
+  });
 }
 
 function setCameraOff(id: string, off: boolean): void {
@@ -521,6 +543,7 @@ btnCam.addEventListener('click', () => {
 btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
   if (!ttsOn && window.speechSynthesis) speechSynthesis.cancel();
+  applyAudioMode(); // mute/unmute foreign originals to match the mode
   setControlState();
 });
 

@@ -28,9 +28,9 @@ export class ChatManager {
   }
 
   addMessage(data: ChatPayload): void {
+    // Every user reads incoming messages only in their own language.
     const translated = data.translations[this.myLang] ?? data.original;
     const isMine = data.sender_id === this.myId;
-    const isTranslated = data.sender_lang !== this.myLang && translated !== data.original;
 
     const msg = document.createElement('div');
     msg.className = `chat-msg ${isMine ? 'chat-msg-mine' : 'chat-msg-other'}`;
@@ -45,13 +45,6 @@ export class ChatManager {
     text.className = 'chat-text';
     text.textContent = translated;
     msg.appendChild(text);
-
-    if (isTranslated) {
-      const original = document.createElement('div');
-      original.className = 'chat-original';
-      original.textContent = data.original;
-      msg.appendChild(original);
-    }
 
     this.container.appendChild(msg);
     this.container.scrollTop = this.container.scrollHeight;
