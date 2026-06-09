@@ -39,6 +39,14 @@ const PATHS: Record<string, string> = {
     '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>',
   pip:
     '<path d="M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/><rect x="10" y="11" width="8" height="5" rx="1"/>',
+  pin:
+    '<path d="M12 2v20M2 12h20"/>',
+  'pin-off':
+    '<path d="M12 2v20M2 12h20"/><line x1="2" y1="2" x2="22" y2="22"/>',
+  grid:
+    '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
+  speaker:
+    '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="14" y="14" width="6" height="6" rx="1"/><rect x="4" y="14" width="8" height="6" rx="1"/>',
 };
 
 /** Return inline SVG markup for `name`, drawn in `currentColor`. */

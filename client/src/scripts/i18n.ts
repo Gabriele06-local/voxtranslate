@@ -31,6 +31,7 @@ export const I18N: Record<string, Dict> = {
     handTip: 'Raise hand', handUp: 'Lower hand',
     fullscreenTip: 'Fullscreen', pipTip: 'Picture in Picture', participants: 'Participants', participantsTip: 'Participants',
     handRaisedNotif: 'raised hand',
+    pinTip: 'Pin video', unpinTip: 'Unpin video', viewGrid: 'Grid view', viewSpeaker: 'Speaker view',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -47,6 +48,7 @@ export const I18N: Record<string, Dict> = {
     handTip: 'Alza mano', handUp: 'Abbassa mano',
     fullscreenTip: 'Schermo intero', pipTip: 'Picture in Picture', participants: 'Partecipanti', participantsTip: 'Partecipanti',
     handRaisedNotif: 'ha alzato la mano',
+    pinTip: 'Fissa video', unpinTip: 'Rimuovi fissaggio', viewGrid: 'Griglia', viewSpeaker: 'Relatore',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -63,6 +65,7 @@ export const I18N: Record<string, Dict> = {
     handTip: 'Levantar mano', handUp: 'Bajar mano',
     fullscreenTip: 'Pantalla completa', pipTip: 'Picture in Picture', participants: 'Participantes', participantsTip: 'Participantes',
     handRaisedNotif: 'levantó la mano',
+    pinTip: 'Fijar video', unpinTip: 'Desfijar video', viewGrid: 'Cuadrícula', viewSpeaker: 'Orador',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -79,6 +82,7 @@ export const I18N: Record<string, Dict> = {
     handTip: 'Lever la main', handUp: 'Baisser la main',
     fullscreenTip: 'Plein écran', pipTip: 'Picture in Picture', participants: 'Participants', participantsTip: 'Participants',
     handRaisedNotif: 'a levé la main',
+    pinTip: 'Épingler', unpinTip: 'Détacher', viewGrid: 'Grille', viewSpeaker: 'Intervenant',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -95,6 +99,7 @@ export const I18N: Record<string, Dict> = {
     handTip: 'Hand heben', handUp: 'Hand senken',
     fullscreenTip: 'Vollbild', pipTip: 'Bild im Bild', participants: 'Teilnehmer', participantsTip: 'Teilnehmer',
     handRaisedNotif: 'hat die Hand gehoben',
+    pinTip: 'Video anheften', unpinTip: 'Loslösen', viewGrid: 'Raster', viewSpeaker: 'Sprecher',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -111,6 +116,7 @@ export const I18N: Record<string, Dict> = {
     handTip: 'Levantar mão', handUp: 'Abaixar mão',
     fullscreenTip: 'Tela cheia', pipTip: 'Picture in Picture', participants: 'Participantes', participantsTip: 'Participantes',
     handRaisedNotif: 'levantou a mão',
+    pinTip: 'Fixar vídeo', unpinTip: 'Desafixar', viewGrid: 'Grade', viewSpeaker: 'Orador',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -127,6 +133,7 @@ export const I18N: Record<string, Dict> = {
     handTip: '手を上げる', handUp: '手を下げる',
     fullscreenTip: '全画面', pipTip: 'ピクチャーインピクチャー', participants: '参加者', participantsTip: '参加者',
     handRaisedNotif: 'が手を上げました',
+    pinTip: 'ピン固定', unpinTip: 'ピン解除', viewGrid: 'グリッド', viewSpeaker: 'スピーカー',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -143,6 +150,7 @@ export const I18N: Record<string, Dict> = {
     handTip: '举手', handUp: '放下手',
     fullscreenTip: '全屏', pipTip: '画中画', participants: '参与者', participantsTip: '参与者',
     handRaisedNotif: '举了手',
+    pinTip: '固定视频', unpinTip: '取消固定', viewGrid: '网格', viewSpeaker: '演讲者',
   },
 };
 

@@ -120,6 +120,7 @@ const LANGS = [
           <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
           <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
           <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
+          <button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button>
           <button id="btn-chat" class="control-btn" data-i18n-title="chatTip"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
         </div>
@@ -377,6 +378,28 @@ const LANGS = [
       display: grid; place-items: center;
     }
     .emoji-grid button:hover { background: var(--border); }
+
+    /* ---------- Pinned / Focus layout ---------- */
+    .video-grid[data-mode="focus"] :global(.video-cell) { display: none; }
+    .video-grid[data-mode="focus"] :global(.video-cell.main-cell) {
+      display: block; position: absolute; inset: 0; z-index: 1;
+    }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) {
+      display: block; position: absolute; z-index: 2;
+      width: 160px; height: 90px; bottom: 12px; right: 12px;
+      border-radius: 8px; border: 2px solid var(--surface);
+      cursor: pointer; transition: transform 0.15s;
+    }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb:hover) { transform: scale(1.08); }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .video-overlay) { font-size: 0.65rem; padding: 2px 6px; }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .subtitle-area) { display: none; }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .hand-indicator) { font-size: 1rem; }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .emoji-float) { display: none; }
+    .video-grid[data-mode="focus"] :global(.video-cell.main-cell) { outline: none; }
+    .video-grid :global(.video-cell.active-speaker) { outline: 2px solid var(--success); outline-offset: -2px; }
+
+    /* ---------- Control bar divider ---------- */
+    .control-bar-divider { width: 1px; height: 28px; background: var(--border); align-self: center; }
 
     /* ---------- Notification banner ---------- */
     .notif-banner {

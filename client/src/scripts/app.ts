@@ -58,6 +58,7 @@ const btnChat = $('btn-chat');
 const btnFullscreen = $('btn-fullscreen');
 const btnPip = $('btn-pip');
 const btnParticipants = $('btn-participants');
+const btnView = $('btn-view');
 const notifBanner = $('notif-banner');
 const participantsPanel = $('participants-panel');
 const participantsList = $('participants-list');
@@ -83,6 +84,9 @@ let handRaised = false;
 let isFullscreen = false;
 let pipWindow: Window | null = null;
 let manualClose = false;
+let viewMode: 'grid' | 'speaker' = 'grid';
+let pinnedPeerId: string | null = null;
+let lastSpeakerId: string | null = null;
 
 const peerNames = new Map<string, { name: string; lang: string }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
@@ -324,6 +328,7 @@ function startCall(): void {
   callRoom.textContent = session.room;
   callVis.textContent = session.isPublic ? t('public') : t('private');
   videoGrid.innerHTML = '';
+  videoGrid.dataset.mode = 'grid';
   peerNames.clear();
 
   // micOn / camOn carry over from the pre-join toggles.
@@ -451,6 +456,11 @@ async function handleServer(msg: any): Promise<void> {
       const myLang = session?.lang || 'en';
       const text = msg.translations?.[myLang] ?? msg.original;
       showSubtitle(msg.speaker_id, text, false, msg.original);
+      // Track active speaker for speaker view
+      if (msg.speaker_id !== myId) {
+        lastSpeakerId = msg.speaker_id;
+        if (viewMode === 'speaker') layoutVideos();
+      }
       // Speak only foreign-language speakers (same-language → you hear their
       // real voice). Their original WebRTC audio is muted by applyAudioMode().
       if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang) speak(text, myLang);
@@ -495,6 +505,17 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean): void 
   mute.hidden = true;
   mute.innerHTML = icon('mic-off', 14);
   overlay.append(nameEl, langEl, mute);
+  if (!isSelf) {
+    const pinBtn = document.createElement('span');
+    pinBtn.className = 'pin-btn';
+    pinBtn.innerHTML = icon('pin', 14);
+    pinBtn.title = t('pinTip');
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePin(id);
+    });
+    overlay.appendChild(pinBtn);
+  }
   cell.appendChild(overlay);
 
   const subs = document.createElement('div');
@@ -510,6 +531,8 @@ function removeCell(id: string): void {
   if (cell) cell.remove();
   peerNames.delete(id);
   peerCamOff.delete(id);
+  if (pinnedPeerId === id) pinnedPeerId = null;
+  if (lastSpeakerId === id) lastSpeakerId = null;
   updateGridCount();
 }
 
@@ -518,37 +541,94 @@ function updateGridCount(): void {
   layoutVideos();
 }
 
-// The grid fills the whole stage (videos use object-fit: cover, so they keep
-// their proportions and fill the space with minimal cropping — no black bars,
-// no scroll). Columns/rows adapt to count + orientation so cells stay as close
-// to the camera aspect as possible (portrait stacks two peers vertically).
+// The grid fills the whole stage. In focus mode (pinned or speaker), the main
+// cell fills the stage and others become small overlays at the bottom-right.
 function layoutVideos(): void {
   const stage = document.querySelector('.video-stage') as HTMLElement | null;
   if (!stage) return;
-  const n = Math.max(videoGrid.querySelectorAll('.video-cell').length, 1);
+  const allCells = [...videoGrid.querySelectorAll<HTMLElement>('.video-cell')];
+  const n = Math.max(allCells.length, 1);
   const sw = stage.clientWidth;
   const sh = stage.clientHeight;
   if (sw === 0 || sh === 0) return;
 
-  let cols: number;
-  let rows: number;
-  if (n <= 1) {
-    cols = 1;
-    rows = 1;
-  } else if (n === 2) {
-    if (sw >= sh) {
-      cols = 2;
-      rows = 1;
-    } else {
-      cols = 1;
-      rows = 2;
+  // Determine focus id
+  const focusId = pinnedPeerId || (viewMode === 'speaker' ? lastSpeakerId : null);
+  const focusCell = focusId ? videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(focusId)}"]`) : null;
+
+  // Remove all special classes first
+  allCells.forEach((c) => c.classList.remove('main-cell', 'video-thumb', 'active-speaker'));
+
+  if (focusCell && focusId && n > 1) {
+    // Focus mode: one main + thumbnails
+    videoGrid.dataset.mode = 'focus';
+    videoGrid.style.gridTemplateColumns = '';
+    videoGrid.style.gridTemplateRows = '';
+    videoGrid.style.position = 'relative';
+    videoGrid.style.width = '100%';
+    videoGrid.style.height = '100%';
+
+    focusCell.classList.add('main-cell');
+
+    for (const cell of allCells) {
+      if (cell === focusCell) continue;
+      cell.classList.add('video-thumb');
+      // Click thumbnail to pin
+      const id = cell.dataset.peer || '';
+      cell.addEventListener('click', () => { if (id) togglePin(id); }, { once: true });
+    }
+
+    // Mark active speaker
+    if (lastSpeakerId && lastSpeakerId !== pinnedPeerId) {
+      const as = videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(lastSpeakerId)}"]`);
+      if (as) as.classList.add('active-speaker');
     }
   } else {
-    cols = 2;
-    rows = 2;
+    // Grid mode (default)
+    videoGrid.dataset.mode = 'grid';
+    let cols: number, rows: number;
+    if (n <= 1) {
+      cols = 1; rows = 1;
+    } else if (n === 2) {
+      if (sw >= sh) { cols = 2; rows = 1; }
+      else { cols = 1; rows = 2; }
+    } else {
+      cols = 2; rows = 2;
+    }
+    videoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    videoGrid.style.position = '';
+    videoGrid.style.width = '';
+    videoGrid.style.height = '';
+
+    // Mark active speaker in grid mode
+    if (lastSpeakerId) {
+      const as = videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(lastSpeakerId)}"]`);
+      if (as) as.classList.add('active-speaker');
+    }
   }
-  videoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+}
+
+function togglePin(id: string): void {
+  if (pinnedPeerId === id) {
+    pinnedPeerId = null;
+  } else {
+    pinnedPeerId = id;
+    if (viewMode === 'speaker') viewMode = 'grid';
+  }
+  setControlState();
+  layoutVideos();
+  updatePinButtons();
+}
+
+function updatePinButtons(): void {
+  videoGrid.querySelectorAll<HTMLElement>('.pin-btn').forEach((btn) => {
+    const cell = btn.closest<HTMLElement>('[data-peer]');
+    const id = cell?.dataset.peer || '';
+    const isPinned = id === pinnedPeerId;
+    btn.innerHTML = icon(isPinned ? 'pin-off' : 'pin', 14);
+    btn.title = isPinned ? t('unpinTip') : t('pinTip');
+  });
 }
 
 function attachStream(id: string, stream: MediaStream): void {
@@ -735,6 +815,8 @@ function setControlState(): void {
   btnHand.title = handRaised ? t('handUp') : t('handTip');
   btnFullscreen.innerHTML = icon(document.fullscreenElement ? 'fullscreen-off' : 'fullscreen');
   btnPip.innerHTML = icon('pip');
+  btnView.innerHTML = icon(viewMode === 'speaker' ? 'speaker' : 'grid');
+  btnView.title = t(viewMode === 'speaker' ? 'viewGrid' : 'viewSpeaker');
   const partIco = btnParticipants.querySelector('.part-ico');
   if (partIco) partIco.innerHTML = icon('users');
   const chatIco = btnChat.querySelector('.chat-ico');
@@ -812,6 +894,14 @@ btnPip.addEventListener('click', () => {
   }
 });
 
+btnView.addEventListener('click', () => {
+  viewMode = viewMode === 'grid' ? 'speaker' : 'grid';
+  if (viewMode === 'grid') pinnedPeerId = null;
+  setControlState();
+  layoutVideos();
+  updatePinButtons();
+});
+
 btnParticipants.addEventListener('click', () => toggleParticipants());
 
 btnChat.addEventListener('click', () => toggleChat());
@@ -854,6 +944,9 @@ function leaveCall(): void {
   if (window.speechSynthesis) speechSynthesis.cancel();
   handRaised = false;
   isFullscreen = false;
+  viewMode = 'grid';
+  pinnedPeerId = null;
+  lastSpeakerId = null;
   mesh = null;
   audioCapture = null;
   chat = null;
