@@ -1,10 +1,13 @@
 // Translated chat. Renders each message in the viewer's language, with the
 // original shown small below when it was translated. Tracks unread while closed.
 
+import { avatarUrl } from './auth';
+
 export interface ChatPayload {
   sender_id: string;
   sender_name: string;
   sender_lang: string;
+  sender_avatar?: string | null;
   original: string;
   translations: Record<string, string>;
   timestamp: number;
@@ -35,8 +38,18 @@ export class ChatManager {
     const msg = document.createElement('div');
     msg.className = `chat-msg ${isMine ? 'chat-msg-mine' : 'chat-msg-other'}`;
 
-    // Sender name (bold) and message rendered inline on the same line.
+    // Sender avatar + name (bold), message rendered inline on the same line.
     if (!isMine) {
+      const av = avatarUrl(data.sender_avatar, 36);
+      if (av) {
+        const img = document.createElement('img');
+        img.className = 'chat-avatar';
+        img.referrerPolicy = 'no-referrer';
+        img.alt = '';
+        img.src = av;
+        img.addEventListener('error', () => img.remove());
+        msg.appendChild(img);
+      }
       const sender = document.createElement('span');
       sender.className = 'chat-sender';
       sender.textContent = data.sender_name;

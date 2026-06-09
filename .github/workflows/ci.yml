@@ -11,9 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Core checks — no API keys needed (network-backed tests auto-skip).
+  # Core checks — no API keys needed (network-backed tests auto-skip). A Postgres
+  # service lets the auth/billing DB tests run; only Deepgram/Groq tests skip.
   test:
     runs-on: ubuntu-latest
+    env:
+      # 127.0.0.1 (not localhost) avoids flaky DNS under concurrent connections.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/voxtest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voxtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -75,6 +92,22 @@ jobs:
     env:
       DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      # Postgres for the auth/billing coverage; the running server stays guest-only
+      # (no GOOGLE_CLIENT_ID/JWT_SECRET), so the Playwright e2e flows are unchanged.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/voxtest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voxtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 

@@ -18,6 +18,9 @@ export async function openPage(
     viewport,
     isMobile: mobile,
     hasTouch: mobile,
+    // Block the PWA service worker: once active it intercepts fetches before
+    // Playwright's route layer, so page.route() on /api/* would be bypassed.
+    serviceWorkers: 'block',
   });
   const page = await ctx.newPage();
   await startCoverage(page);

@@ -6,33 +6,48 @@
 //!
 //! `app()` builds the router from an [`AppState`]; `serve()` is the binary entry.
 
+pub mod api;
+pub mod auth;
+pub mod billing;
 pub mod config;
+pub mod db;
 pub mod deepgram;
 pub mod groq;
+pub mod middleware;
 pub mod protocol;
+pub mod rate_limit;
 pub mod rooms;
+pub mod stripe_handler;
 pub mod translator;
+pub mod usage;
 
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::oneshot;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
+use crate::auth::{GoogleVerifier, TokenVerifier};
+use crate::billing::{usd, BillingService};
 use crate::config::Config;
+use crate::db::Pool;
 use crate::groq::Groq;
 use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
+use crate::rate_limit::RateLimiter;
 use crate::rooms::{Peer, RoomManager, Visibility};
 use crate::translator::Translator;
+use crate::usage::{run_guest_meter, run_usage_meter, MeterConfig};
 
 /// Shared application state.
 #[derive(Clone)]
@@ -40,17 +55,63 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub rooms: Arc<RoomManager>,
     pub translator: Translator,
+    /// Postgres pool — `Some` only when auth/billing is configured.
+    pub pool: Option<Pool>,
+    /// Credit ledger service — `Some` only when auth/billing is configured.
+    pub billing: Option<BillingService>,
+    /// Verifies Google credentials (swappable for tests).
+    pub verifier: Arc<dyn TokenVerifier>,
+    /// Shared HTTP client (Google tokeninfo, Stripe).
+    pub http: reqwest::Client,
+    /// Throttles auth + checkout endpoints.
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 impl AppState {
-    /// Build state from a [`Config`].
+    /// Build state from a [`Config`] **without** touching the database. The pool
+    /// stays `None`; use [`AppState::init`] to connect + migrate when billing is
+    /// configured.
     pub fn new(config: Config) -> Self {
         let translator = Translator::new(Groq::new(config.groq_key.clone()));
+        let http = reqwest::Client::new();
+        let client_id = config
+            .billing
+            .as_ref()
+            .map(|b| b.google_client_id.clone())
+            .unwrap_or_default();
+        let verifier: Arc<dyn TokenVerifier> =
+            Arc::new(GoogleVerifier::new(client_id, http.clone()));
         Self {
             config: Arc::new(config),
             rooms: Arc::new(RoomManager::new()),
             translator,
+            pool: None,
+            billing: None,
+            verifier,
+            http,
+            rate_limiter: Arc::new(RateLimiter::new()),
         }
+    }
+
+    /// Build state and, when billing is configured, connect the database and run
+    /// migrations. In guest-only mode this is just [`AppState::new`].
+    pub async fn init(config: Config) -> Result<Self, String> {
+        let mut state = Self::new(config);
+        if let Some(billing) = state.config.billing.clone() {
+            let pool = db::connect(&billing.database_url)
+                .await
+                .map_err(|e| format!("database connect failed: {e}"))?;
+            db::migrate(&pool)
+                .await
+                .map_err(|e| format!("migrations failed: {e}"))?;
+            let min_join = usd(billing.pricing.min_balance_to_join);
+            state.billing = Some(BillingService::new(pool.clone(), min_join));
+            state.pool = Some(pool);
+            tracing::info!("auth/billing enabled — database connected, migrations applied");
+        } else {
+            tracing::info!("guest-only mode — no auth/billing configured");
+        }
+        Ok(state)
     }
 }
 
@@ -60,6 +121,14 @@ pub fn app(state: AppState) -> Router {
         .route("/ws", get(ws_handler))
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
+        .route("/api/auth/config", get(auth::auth_config))
+        .route("/api/auth/google", post(auth::auth_google))
+        .route("/api/user/me", get(auth::user_me))
+        .route("/api/billing/packages", get(api::billing_packages))
+        .route("/api/billing/checkout", post(api::billing_checkout))
+        .route("/api/billing/webhook", post(api::billing_webhook))
+        .route("/api/billing/history", get(api::billing_history))
+        .route("/api/usage/sessions", get(api::usage_sessions))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -84,7 +153,13 @@ pub async fn serve() {
     };
 
     let port = config.port;
-    let state = AppState::new(config);
+    let state = match AppState::init(config).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("startup failed: {e}");
+            std::process::exit(1);
+        }
+    };
 
     // Periodic cleanup of rooms whose peers have all disconnected.
     let rooms = state.rooms.clone();
@@ -139,6 +214,114 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// An authenticated, billable peer: their user id and Google avatar.
+#[derive(Clone)]
+struct AuthedPeer {
+    user_id: Uuid,
+    avatar_url: Option<String>,
+}
+
+/// Resolve the (optional) billed user for a WS connection from its token:
+/// - `Ok(None)`       — guest (no token, or billing not configured here);
+/// - `Ok(Some(peer))` — authenticated user with enough balance to join;
+/// - `Err(msg)`       — reject the connection with this error frame.
+async fn authorize(
+    state: &AppState,
+    token: Option<&str>,
+) -> Result<Option<AuthedPeer>, ServerMessage> {
+    let Some(token) = token.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Ok(None); // no token -> guest
+    };
+    // A token was supplied but this server has no billing — treat as guest.
+    let (Some(cfg), Some(svc)) = (state.config.billing.as_ref(), state.billing.as_ref()) else {
+        return Ok(None);
+    };
+
+    let claims =
+        crate::auth::verify_jwt(&cfg.jwt_secret, token).map_err(|_| ServerMessage::Error {
+            message: "invalid or expired session".to_string(),
+            code: Some("invalid_token".to_string()),
+        })?;
+    let uid = Uuid::parse_str(&claims.sub).map_err(|_| ServerMessage::Error {
+        message: "invalid session".to_string(),
+        code: Some("invalid_token".to_string()),
+    })?;
+
+    match svc.can_join(uid).await {
+        Ok(true) => {
+            let avatar_url = svc.get_avatar(uid).await.unwrap_or_default();
+            Ok(Some(AuthedPeer {
+                user_id: uid,
+                avatar_url,
+            }))
+        }
+        Ok(false) => Err(ServerMessage::Error {
+            message: "insufficient balance to join".to_string(),
+            code: Some("insufficient_balance".to_string()),
+        }),
+        Err(e) => {
+            tracing::error!("can_join check failed: {e}");
+            Err(ServerMessage::Error {
+                message: "billing service unavailable".to_string(),
+                code: Some("billing_unavailable".to_string()),
+            })
+        }
+    }
+}
+
+/// Spawn the usage meter for a just-started speaking session, returning its
+/// cancel handle. Returns `None` when no metering applies (guest with no cap).
+fn spawn_meter(
+    state: &AppState,
+    billed_user: Option<Uuid>,
+    usage_session_id: Option<Uuid>,
+    guest_cap_secs: Option<u64>,
+    guest_spent: &Option<Arc<AtomicU64>>,
+    out_tx: &UnboundedSender<String>,
+    exhaust_tx: &UnboundedSender<()>,
+) -> Option<oneshot::Sender<()>> {
+    let billing_cfg = state.config.billing.as_ref()?;
+    let interval = billing_cfg.pricing.usage_update_interval;
+
+    // Billed user: charge credits per interval.
+    if let (Some(uid), Some(sid), Some(svc)) =
+        (billed_user, usage_session_id, state.billing.as_ref())
+    {
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let cfg = MeterConfig {
+            interval_secs: interval,
+            rate_per_second: billing_cfg.pricing.user_rate_per_second,
+            low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
+        };
+        tokio::spawn(run_usage_meter(
+            svc.clone(),
+            uid,
+            sid,
+            cfg,
+            out_tx.clone(),
+            exhaust_tx.clone(),
+            cancel_rx,
+        ));
+        return Some(cancel_tx);
+    }
+
+    // Guest with a cumulative time cap.
+    if let (Some(cap), Some(spent)) = (guest_cap_secs, guest_spent.as_ref()) {
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        tokio::spawn(run_guest_meter(
+            spent.clone(),
+            cap,
+            interval,
+            out_tx.clone(),
+            exhaust_tx.clone(),
+            cancel_rx,
+        ));
+        return Some(cancel_tx);
+    }
+
+    None
+}
+
 /// A peer's WebSocket: receives audio (binary) + control/signaling/chat (text),
 /// and is sent room lifecycle, relayed signaling, subtitles, chat, and peer state.
 async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
@@ -148,6 +331,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         name,
         id,
         public,
+        token,
     } = params;
     let id = id
         .filter(|s| !s.trim().is_empty())
@@ -163,12 +347,25 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
+    // Auth / billing gate: resolve the (optional) billed user before joining.
+    let authed = match authorize(&state, token.as_deref()).await {
+        Ok(u) => u,
+        Err(err) => {
+            let _ = ws_tx.send(Message::Text(err.to_json().into())).await;
+            let _ = ws_tx.close().await;
+            return;
+        }
+    };
+    let billed_user = authed.as_ref().map(|a| a.user_id);
+    let avatar_url = authed.and_then(|a| a.avatar_url);
+
     // Outgoing channel: server -> this peer's WS (text frames).
     let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
     let peer = Peer {
         id: id.clone(),
         name: name.clone(),
         lang: lang.clone(),
+        avatar_url: avatar_url.clone(),
         tx: out_tx.clone(),
     };
 
@@ -201,100 +398,149 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             peer_id: id.clone(),
             user_name: name.clone(),
             lang: lang.clone(),
+            avatar_url: avatar_url.clone(),
         }
         .to_json(),
     );
 
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
+    // One usage session per call for billed users (cost accrues while speaking).
+    let usage_session_id = match (billed_user, state.billing.as_ref()) {
+        (Some(uid), Some(svc)) => match svc.create_session(uid, &room).await {
+            Ok(sid) => Some(sid),
+            Err(e) => {
+                tracing::error!("create usage session failed: {e}");
+                None
+            }
+        },
+        _ => None,
+    };
+
+    // Guest speaking-time cap (cumulative across bursts), if configured.
+    let guest_cap_secs = if billed_user.is_none() {
+        state
+            .config
+            .billing
+            .as_ref()
+            .and_then(|b| b.guest_max_minutes)
+            .map(|m| m.saturating_mul(60))
+    } else {
+        None
+    };
+    let guest_spent = guest_cap_secs.map(|_| Arc::new(AtomicU64::new(0)));
+
     // Active speaking session (Some only while unmuted/talking).
     let mut audio_tx: Option<UnboundedSender<Vec<u8>>> = None;
+    // Cancels the running usage/guest meter (on Stop / disconnect).
+    let mut meter_cancel: Option<oneshot::Sender<()>> = None;
+    // The meter signals here when credits/cap are exhausted -> stop audio.
+    let (exhaust_tx, mut exhaust_rx) = mpsc::unbounded_channel::<()>();
 
-    while let Some(Ok(msg)) = ws_rx.next().await {
-        match msg {
-            Message::Binary(data) => {
-                if let Some(tx) = &audio_tx {
-                    let _ = tx.send(data.to_vec());
+    loop {
+        tokio::select! {
+            maybe_msg = ws_rx.next() => {
+                let Some(Ok(msg)) = maybe_msg else { break };
+                match msg {
+                    Message::Binary(data) => {
+                        if let Some(tx) = &audio_tx {
+                            let _ = tx.send(data.to_vec());
+                        }
+                    }
+                    Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
+                        Ok(ClientMessage::Start) => {
+                            if audio_tx.is_none() {
+                                audio_tx =
+                                    start_speaking_session(&state, &room, &id, &name, &lang).await;
+                                if audio_tx.is_some() {
+                                    meter_cancel = spawn_meter(
+                                        &state,
+                                        billed_user,
+                                        usage_session_id,
+                                        guest_cap_secs,
+                                        &guest_spent,
+                                        &out_tx,
+                                        &exhaust_tx,
+                                    );
+                                }
+                            }
+                        }
+                        Ok(ClientMessage::Stop) => {
+                            audio_tx = None; // flush + close Deepgram
+                            if let Some(c) = meter_cancel.take() {
+                                let _ = c.send(());
+                            }
+                        }
+                        Ok(ClientMessage::Offer { to, sdp }) => {
+                            state.rooms.relay_to_peer(
+                                &room,
+                                &to,
+                                &ServerMessage::Offer { from: id.clone(), sdp }.to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::Answer { to, sdp }) => {
+                            state.rooms.relay_to_peer(
+                                &room,
+                                &to,
+                                &ServerMessage::Answer { from: id.clone(), sdp }.to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::Ice { to, candidate }) => {
+                            state.rooms.relay_to_peer(
+                                &room,
+                                &to,
+                                &ServerMessage::Ice { from: id.clone(), candidate }.to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::Chat { text }) => {
+                            handle_chat(&state, &room, &id, &name, &lang, &avatar_url, text);
+                        }
+                        Ok(ClientMessage::MuteAudio { muted }) => {
+                            state.rooms.broadcast_except(
+                                &room,
+                                &id,
+                                &ServerMessage::PeerMuted {
+                                    peer_id: id.clone(),
+                                    kind: "audio".to_string(),
+                                    muted,
+                                }
+                                .to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::MuteVideo { muted }) => {
+                            state.rooms.broadcast_except(
+                                &room,
+                                &id,
+                                &ServerMessage::PeerMuted {
+                                    peer_id: id.clone(),
+                                    kind: "video".to_string(),
+                                    muted,
+                                }
+                                .to_json(),
+                            );
+                        }
+                        Err(_) => {} // unknown / malformed control frame
+                    },
+                    Message::Close(_) => break,
+                    _ => {}
                 }
             }
-            Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
-                Ok(ClientMessage::Start) => {
-                    if audio_tx.is_none() {
-                        audio_tx = start_speaking_session(&state, &room, &id, &name, &lang).await;
-                    }
-                }
-                Ok(ClientMessage::Stop) => {
-                    audio_tx = None; // flush + close Deepgram
-                }
-                Ok(ClientMessage::Offer { to, sdp }) => {
-                    state.rooms.relay_to_peer(
-                        &room,
-                        &to,
-                        &ServerMessage::Offer {
-                            from: id.clone(),
-                            sdp,
-                        }
-                        .to_json(),
-                    );
-                }
-                Ok(ClientMessage::Answer { to, sdp }) => {
-                    state.rooms.relay_to_peer(
-                        &room,
-                        &to,
-                        &ServerMessage::Answer {
-                            from: id.clone(),
-                            sdp,
-                        }
-                        .to_json(),
-                    );
-                }
-                Ok(ClientMessage::Ice { to, candidate }) => {
-                    state.rooms.relay_to_peer(
-                        &room,
-                        &to,
-                        &ServerMessage::Ice {
-                            from: id.clone(),
-                            candidate,
-                        }
-                        .to_json(),
-                    );
-                }
-                Ok(ClientMessage::Chat { text }) => {
-                    handle_chat(&state, &room, &id, &name, &lang, text);
-                }
-                Ok(ClientMessage::MuteAudio { muted }) => {
-                    state.rooms.broadcast_except(
-                        &room,
-                        &id,
-                        &ServerMessage::PeerMuted {
-                            peer_id: id.clone(),
-                            kind: "audio".to_string(),
-                            muted,
-                        }
-                        .to_json(),
-                    );
-                }
-                Ok(ClientMessage::MuteVideo { muted }) => {
-                    state.rooms.broadcast_except(
-                        &room,
-                        &id,
-                        &ServerMessage::PeerMuted {
-                            peer_id: id.clone(),
-                            kind: "video".to_string(),
-                            muted,
-                        }
-                        .to_json(),
-                    );
-                }
-                Err(_) => {} // unknown / malformed control frame
-            },
-            Message::Close(_) => break,
-            _ => {}
+            _ = exhaust_rx.recv() => {
+                // Credits/cap exhausted: stop audio -> STT, keep the call alive.
+                audio_tx = None;
+                meter_cancel = None;
+            }
         }
     }
 
     tracing::info!(%room, %name, "peer left");
     drop(audio_tx); // flush any active speaking session
+    if let Some(c) = meter_cancel.take() {
+        let _ = c.send(());
+    }
+    if let (Some(sid), Some(svc)) = (usage_session_id, state.billing.as_ref()) {
+        let _ = svc.finalize_session(sid).await;
+    }
     state.rooms.remove(&room, &id);
     state
         .rooms
@@ -304,13 +550,22 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
 
 /// Translate a chat message into every language in the room (parallel) and
 /// broadcast it to everyone, including the sender.
-fn handle_chat(state: &AppState, room: &str, id: &str, name: &str, lang: &str, text: String) {
+fn handle_chat(
+    state: &AppState,
+    room: &str,
+    id: &str,
+    name: &str,
+    lang: &str,
+    avatar_url: &Option<String>,
+    text: String,
+) {
     let rooms = state.rooms.clone();
     let translator = state.translator.clone();
     let room = room.to_string();
     let sender_id = id.to_string();
     let sender_name = name.to_string();
     let sender_lang = lang.to_string();
+    let sender_avatar = avatar_url.clone();
     let timestamp = now_unix();
     tokio::spawn(async move {
         let targets = rooms.get_room_languages(&room, &sender_id);
@@ -323,6 +578,7 @@ fn handle_chat(state: &AppState, room: &str, id: &str, name: &str, lang: &str, t
                 sender_id,
                 sender_name,
                 sender_lang,
+                sender_avatar,
                 original: text,
                 translations,
                 timestamp,
@@ -363,6 +619,7 @@ async fn start_speaking_session(
                 id,
                 &ServerMessage::Error {
                     message: "speech service unavailable".to_string(),
+                    code: None,
                 }
                 .to_json(),
             );

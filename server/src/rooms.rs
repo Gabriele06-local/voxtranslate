@@ -24,6 +24,8 @@ pub struct Peer {
     pub id: String,
     pub name: String,
     pub lang: String,
+    /// Google avatar URL for authenticated users; `None` for guests.
+    pub avatar_url: Option<String>,
     pub tx: UnboundedSender<String>,
 }
 
@@ -71,6 +73,7 @@ impl RoomManager {
                 id: p.id.clone(),
                 user_name: p.name.clone(),
                 lang: p.lang.clone(),
+                avatar_url: p.avatar_url.clone(),
             })
             .collect();
         room.peers.push(peer);
@@ -172,6 +175,7 @@ mod tests {
                 id: id.into(),
                 name: id.to_uppercase(),
                 lang: lang.into(),
+                avatar_url: None,
                 tx,
             },
             rx,

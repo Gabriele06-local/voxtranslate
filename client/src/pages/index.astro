@@ -15,11 +15,32 @@ const LANGS = [
 
 <Base title="VoxTranslate">
   <main class="app">
+    <!-- ===================== LOGIN (billing mode only) ===================== -->
+    <section id="login" class="screen hidden">
+      <div class="login-card card">
+        <h1 class="brand">Vox<span>Translate</span></h1>
+        <p class="tagline" data-i18n="tagline"></p>
+        <p class="login-sub" data-i18n="loginSub"></p>
+        <div id="gsi-button" class="gsi-button"></div>
+        <div class="login-or"><span data-i18n="orText"></span></div>
+        <button id="guest-btn" class="btn-ghost guest-btn" data-i18n="continueGuest"></button>
+      </div>
+    </section>
+
     <!-- ===================== HOME / LOBBY ===================== -->
     <section id="home" class="screen">
       <header class="home-header">
         <h1 class="brand">Vox<span>Translate</span></h1>
         <p class="tagline" data-i18n="tagline"></p>
+        <div id="account-bar" class="account-bar hidden">
+          <img id="account-avatar" class="account-avatar" alt="" referrerpolicy="no-referrer" />
+          <div class="account-info">
+            <span id="account-name" class="account-name"></span>
+            <span id="account-balance" class="account-balance"></span>
+          </div>
+          <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits"></button>
+          <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" aria-label="Logout"></button>
+        </div>
       </header>
       <div class="home-body">
         <div class="card">
@@ -109,7 +130,12 @@ const LANGS = [
         <header class="call-header">
           <button id="call-room" class="room-badge mono" title="Copy"></button>
           <span id="call-vis" class="vis-badge"></span>
+          <span id="call-balance" class="call-balance hidden"></span>
         </header>
+        <div id="low-banner" class="low-banner hidden">
+          <span id="low-banner-text"></span>
+          <button id="low-banner-buy" class="btn-ghost" data-i18n="buyCredits"></button>
+        </div>
         <div class="video-stage"><div id="video-grid" class="video-grid" data-peers="1"></div></div>
         <div class="control-bar">
           <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
@@ -132,6 +158,35 @@ const LANGS = [
         </div>
       </aside>
     </section>
+
+    <!-- ===================== BUY CREDITS MODAL ===================== -->
+    <div id="buy-modal" class="modal-overlay hidden">
+      <div class="modal card">
+        <div class="modal-head">
+          <span class="card-title" data-i18n="buyCredits"></span>
+          <button id="buy-close" class="btn-ghost icon-btn" aria-label="Close"></button>
+        </div>
+        <p class="modal-balance"><span data-i18n="currentBalance"></span>: <strong id="modal-balance"></strong></p>
+        <div id="packages-list" class="packages-list"></div>
+        <div class="modal-tabs">
+          <button id="tab-history" class="seg-btn active" data-i18n="history"></button>
+          <button id="tab-usage" class="seg-btn" data-i18n="usageHistory"></button>
+        </div>
+        <div id="ledger-list" class="ledger-list"></div>
+      </div>
+    </div>
+
+    <!-- ===================== BALANCE EXHAUSTED MODAL ===================== -->
+    <div id="exhausted-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow">
+        <span class="card-title" data-i18n="outOfCredits"></span>
+        <p class="modal-text" data-i18n="outOfCreditsText"></p>
+        <div class="modal-actions">
+          <button id="exhausted-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
+          <button id="exhausted-buy" class="btn-primary" data-i18n="buyCredits"></button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <style>
@@ -321,6 +376,61 @@ const LANGS = [
     .chat-messages :global(.chat-text) { color: var(--text); }
     .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
+
+    /* ---------- Login ---------- */
+    #login { align-items: center; justify-content: center; padding: 20px; }
+    .login-card { width: 100%; max-width: 380px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 32px 24px; }
+    .login-card .brand { font-size: 2rem; }
+    .login-sub { color: var(--muted); font-size: 0.9rem; margin: 4px 0 8px; }
+    .gsi-button { min-height: 44px; display: flex; justify-content: center; }
+    .login-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.78rem; width: 100%; }
+    .login-or::before, .login-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .guest-btn { min-height: 44px; padding: 0 20px; }
+
+    /* ---------- Account bar ---------- */
+    .account-bar { display: flex; align-items: center; gap: 10px; max-width: 480px; margin: 14px auto 0; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .account-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--surface-2); flex: none; }
+    .account-info { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: left; }
+    .account-name { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .account-balance { font-size: 0.82rem; color: var(--success); font-variant-numeric: tabular-nums; }
+    .account-balance.low { color: var(--danger); }
+    .account-bar .btn-ghost { flex: none; }
+
+    /* ---------- Call balance pill + low banner ---------- */
+    .call-balance { margin-left: auto; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--success); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
+    .call-balance.low { color: var(--danger); border-color: var(--danger); }
+    .low-banner { flex: none; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 14px; background: rgba(239,68,68,0.12); border: 1px solid var(--danger); border-radius: 10px; color: var(--text); font-size: 0.86rem; }
+    .low-banner .btn-ghost { border-color: var(--danger); color: var(--text); }
+
+    /* ---------- Modals ---------- */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; padding: 16px; z-index: 50; }
+    .modal { width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    .modal-narrow { max-width: 360px; text-align: center; }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; }
+    .modal-balance { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    .modal-balance strong { color: var(--text); font-variant-numeric: tabular-nums; }
+    .modal-text { color: var(--muted); font-size: 0.9rem; margin: 0; }
+    .modal-actions { display: flex; gap: 10px; justify-content: center; }
+    .modal-actions .btn-primary { width: auto; padding: 12px 22px; }
+    .modal-tabs { display: flex; gap: 8px; }
+    .packages-list { display: flex; flex-direction: column; gap: 8px; }
+    .packages-list :global(.pkg) { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; width: 100%; text-align: left; }
+    .packages-list :global(.pkg:hover) { border-color: var(--accent); }
+    .packages-list :global(.pkg-name) { font-weight: 600; }
+    .packages-list :global(.pkg-credits) { font-size: 0.8rem; color: var(--success); }
+    .packages-list :global(.pkg-price) { font-weight: 700; font-variant-numeric: tabular-nums; flex: none; }
+    .ledger-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .ledger-list :global(.ledger-row) { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 0.84rem; padding: 6px 2px; border-bottom: 1px solid var(--border); }
+    .ledger-list :global(.ledger-desc) { color: var(--muted); }
+    .ledger-list :global(.ledger-amount) { font-variant-numeric: tabular-nums; font-weight: 600; flex: none; }
+    .ledger-list :global(.ledger-amount.pos) { color: var(--success); }
+    .ledger-list :global(.ledger-amount.neg) { color: var(--danger); }
+    .ledger-list :global(.ledger-empty) { color: var(--muted); text-align: center; padding: 12px 0; font-size: 0.85rem; }
+
+    /* Google avatar in a video cell (overrides the gradient initials block). */
+    .video-grid :global(.avatar img) { width: 100%; height: 100%; object-fit: cover; }
+    .video-grid :global(.avatar-img) { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; }
+    .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 5px; }
 
     @media (max-width: 768px) {
       #call { flex-direction: column; }

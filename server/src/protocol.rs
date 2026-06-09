@@ -52,6 +52,9 @@ pub struct PeerInfo {
     pub id: String,
     pub user_name: String,
     pub lang: String,
+    /// Avatar URL for authenticated peers; absent for guests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
 }
 
 /// Messages the server pushes to peers as JSON text frames.
@@ -68,6 +71,8 @@ pub enum ServerMessage {
         peer_id: String,
         user_name: String,
         lang: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        avatar_url: Option<String>,
     },
     /// A peer left.
     PeerLeft {
@@ -95,6 +100,8 @@ pub enum ServerMessage {
         sender_id: String,
         sender_name: String,
         sender_lang: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sender_avatar: Option<String>,
         original: String,
         translations: HashMap<String, String>,
         timestamp: u64,
@@ -125,9 +132,24 @@ pub enum ServerMessage {
         translations: HashMap<String, String>,
     },
 
-    /// Non-fatal error surfaced to a peer.
+    /// Live credit balance after a usage deduction (sent only to the speaker).
+    BalanceUpdate {
+        balance: f64,
+    },
+    /// Balance fell below the low-balance threshold (warn the speaker once).
+    LowBalance {
+        balance: f64,
+    },
+    /// Credits exhausted: the speaking session (audio → STT) was stopped. The
+    /// WebRTC call itself stays up; the user can buy credits and resume.
+    BalanceExhausted,
+
+    /// Non-fatal error surfaced to a peer. `code` lets the client branch (e.g.
+    /// `insufficient_balance` → show the buy-credits prompt).
     Error {
         message: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        code: Option<String>,
     },
 }
 
@@ -154,6 +176,10 @@ pub struct WsParams {
     pub id: Option<String>,
     #[serde(default)]
     pub public: Option<bool>,
+    /// Optional session JWT. Absent → guest (no billing). Present + valid → the
+    /// peer is a billed user; invalid → the connection is rejected.
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 // --- Lobby (GET /rooms) ----------------------------------------------------
@@ -254,10 +280,35 @@ mod tests {
         .to_json();
         assert!(s.contains("\"type\":\"subtitle_final\"") && s.contains("\"original\":\"ciao\""));
         assert!(ServerMessage::Error {
-            message: "x".into()
+            message: "x".into(),
+            code: None,
         }
         .to_json()
         .contains("\"type\":\"error\""));
+        // `code` is omitted when None, present when Some.
+        let no_code = ServerMessage::Error {
+            message: "x".into(),
+            code: None,
+        }
+        .to_json();
+        assert!(!no_code.contains("code"));
+        let coded = ServerMessage::Error {
+            message: "broke".into(),
+            code: Some("insufficient_balance".into()),
+        }
+        .to_json();
+        assert!(coded.contains("\"code\":\"insufficient_balance\""));
+
+        // Balance messages.
+        assert!(ServerMessage::BalanceUpdate { balance: 1.5 }
+            .to_json()
+            .contains("\"type\":\"balance_update\""));
+        assert!(ServerMessage::LowBalance { balance: 0.4 }
+            .to_json()
+            .contains("\"type\":\"low_balance\""));
+        assert!(ServerMessage::BalanceExhausted
+            .to_json()
+            .contains("\"type\":\"balance_exhausted\""));
     }
 
     #[test]

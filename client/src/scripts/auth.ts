@@ -1,0 +1,213 @@
+// Auth + billing client. Talks to the optional accounts/credits backend:
+// Google login -> JWT session, balance, credit packages, Stripe checkout, and
+// usage/credit history. When the backend runs in guest-only mode (billing off),
+// `billingEnabled()` resolves false and the UI skips all of this.
+
+const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
+const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
+export const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
+export const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url?: string | null;
+  balance: number;
+}
+
+export interface CreditPackage {
+  id: string;
+  name: string;
+  price_usd: number;
+  credits_usd: number;
+}
+
+export interface Transaction {
+  amount: number;
+  kind: string;
+  balance_after: number;
+  description?: string | null;
+  created_at: string;
+}
+
+export interface UsageSession {
+  room: string;
+  speaking_seconds: number;
+  cost: number;
+  started_at: string;
+  ended_at?: string | null;
+}
+
+const TOKEN_KEY = 'vox.token';
+const USER_KEY = 'vox.user';
+
+// localStorage may be unavailable (private mode, tests) — fall back to memory.
+const mem = new Map<string, string>();
+function store(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
+  try {
+    if (typeof localStorage !== 'undefined') return localStorage;
+  } catch {
+    /* blocked */
+  }
+  return {
+    getItem: (k) => (mem.has(k) ? mem.get(k)! : null),
+    setItem: (k, v) => void mem.set(k, v),
+    removeItem: (k) => void mem.delete(k),
+  };
+}
+
+let token: string | null = store().getItem(TOKEN_KEY);
+let user: User | null = parseUser(store().getItem(USER_KEY));
+let billing: boolean | null = null;
+let googleClientId = '';
+
+function parseUser(raw: string | null): User | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
+}
+
+export function getToken(): string | null {
+  return token;
+}
+export function getUser(): User | null {
+  return user;
+}
+export function isLoggedIn(): boolean {
+  return !!token && !!user;
+}
+
+export function saveSession(t: string, u: User): void {
+  token = t;
+  user = u;
+  store().setItem(TOKEN_KEY, t);
+  store().setItem(USER_KEY, JSON.stringify(u));
+}
+
+export function clearSession(): void {
+  token = null;
+  user = null;
+  store().removeItem(TOKEN_KEY);
+  store().removeItem(USER_KEY);
+}
+
+/** Patch the cached balance (after a usage tick or top-up) and persist it. */
+export function setBalance(balance: number): void {
+  if (!user) return;
+  user = { ...user, balance };
+  store().setItem(USER_KEY, JSON.stringify(user));
+}
+
+export function authHeaders(): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Build the `/ws` URL, attaching the session token when logged in. */
+export function buildWsUrl(params: URLSearchParams): string {
+  if (token) params.set('token', token);
+  return `${WS_BASE}/ws?${params.toString()}`;
+}
+
+/**
+ * Whether the backend has accounts/credits enabled. Probes `/api/auth/config`
+ * once (200 = on + carries the Google client id, 503 = guest-only) and caches.
+ */
+export async function billingEnabled(): Promise<boolean> {
+  if (billing !== null) return billing;
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/auth/config`, { cache: 'no-store' });
+    if (res.ok) {
+      const cfg = (await res.json()) as { google_client_id?: string };
+      googleClientId = cfg.google_client_id || '';
+      billing = true;
+    } else {
+      billing = false;
+    }
+  } catch {
+    billing = false;
+  }
+  return billing;
+}
+
+/** The Google OAuth client id (available after `billingEnabled()` resolves). */
+export function getGoogleClientId(): string {
+  return googleClientId;
+}
+
+/** Exchange a Google credential for a session; stores token + user on success. */
+export async function loginWithGoogle(credential: string): Promise<User> {
+  const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential }),
+  });
+  if (!res.ok) throw new Error(`login failed (${res.status})`);
+  const data = (await res.json()) as { token: string; user: User };
+  saveSession(data.token, data.user);
+  return data.user;
+}
+
+/** Re-fetch the current user (balance) from the server. */
+export async function refreshMe(): Promise<User | null> {
+  if (!token) return null;
+  const res = await fetch(`${HTTP_BASE}/api/user/me`, { headers: authHeaders() });
+  if (res.status === 401) {
+    clearSession();
+    return null;
+  }
+  if (!res.ok) return user;
+  const u = (await res.json()) as User;
+  saveSession(token, u);
+  return u;
+}
+
+export async function fetchPackages(): Promise<CreditPackage[]> {
+  const res = await fetch(`${HTTP_BASE}/api/billing/packages`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  return (await res.json()) as CreditPackage[];
+}
+
+export async function fetchHistory(): Promise<Transaction[]> {
+  const res = await fetch(`${HTTP_BASE}/api/billing/history`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  return (await res.json()) as Transaction[];
+}
+
+export async function fetchUsage(): Promise<UsageSession[]> {
+  const res = await fetch(`${HTTP_BASE}/api/usage/sessions`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  return (await res.json()) as UsageSession[];
+}
+
+/** Start a Stripe Checkout Session; returns the hosted URL to redirect to. */
+export async function startCheckout(packageId: string): Promise<string> {
+  const res = await fetch(`${HTTP_BASE}/api/billing/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ package_id: packageId }),
+  });
+  if (!res.ok) throw new Error(`checkout failed (${res.status})`);
+  const data = (await res.json()) as { url: string };
+  return data.url;
+}
+
+/** Format a credit balance as USD (the credit unit is 1 credit = $1). */
+export function formatCredits(amount: number): string {
+  return `$${(amount ?? 0).toFixed(2)}`;
+}
+
+/**
+ * Resize a Google avatar URL to `size` px (Google supports the `=sNN` suffix).
+ * Returns null for missing/non-Google URLs unchanged-but-usable.
+ */
+export function avatarUrl(url: string | null | undefined, size = 96): string | null {
+  if (!url) return null;
+  // Google content URLs carry an `=s96-c` style suffix; replace or append it.
+  if (/=s\d+(-c)?$/.test(url)) return url.replace(/=s\d+(-c)?$/, `=s${size}`);
+  if (url.includes('googleusercontent.com')) return `${url}=s${size}`;
+  return url;
+}

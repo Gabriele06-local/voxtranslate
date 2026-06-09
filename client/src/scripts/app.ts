@@ -6,6 +6,7 @@ import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
 import { ChatManager, type ChatPayload } from './chat';
+import * as auth from './auth';
 
 // ---- Config ----------------------------------------------------------------
 const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
@@ -16,9 +17,26 @@ const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 // ---- Screens ---------------------------------------------------------------
+const loginScreen = $('login');
 const homeScreen = $('home');
 const prejoinScreen = $('prejoin');
 const callScreen = $('call');
+
+// ---- Auth / billing refs ---------------------------------------------------
+const accountBar = $('account-bar');
+const accountAvatar = $<HTMLImageElement>('account-avatar');
+const accountName = $('account-name');
+const accountBalance = $('account-balance');
+const callBalance = $('call-balance');
+const lowBanner = $('low-banner');
+const lowBannerText = $('low-banner-text');
+const buyModal = $('buy-modal');
+const packagesList = $('packages-list');
+const ledgerList = $('ledger-list');
+const modalBalance = $('modal-balance');
+const exhaustedModal = $('exhausted-modal');
+
+let billing = false; // accounts/credits enabled on this backend
 
 // ---- Home refs -------------------------------------------------------------
 const roomInput = $<HTMLInputElement>('room');
@@ -73,7 +91,7 @@ let camOn = true;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
 let manualClose = false;
 
-const peerNames = new Map<string, { name: string; lang: string }>();
+const peerNames = new Map<string, { name: string; lang: string; avatar?: string | null }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
 const subtitleTimers = new Map<string, number>();
 
@@ -317,7 +335,8 @@ function startCall(): void {
   setControlState();
 
   // Self cell — reflect the pre-join mic/camera choice.
-  addCell(myId, session.name || t('namePlaceholder'), session.lang, true);
+  const myAvatar = billing && auth.isLoggedIn() ? auth.getUser()?.avatar_url : null;
+  addCell(myId, session.name || t('namePlaceholder'), session.lang, true, myAvatar);
   attachStream(myId, localStream);
   setCameraOff(myId, !camOn);
   setAudioMuted(myId, !micOn);
@@ -330,7 +349,7 @@ function openSocket(): void {
   if (!session) return;
   const params = new URLSearchParams({ room: session.room, lang: session.lang, id: myId, public: String(session.isPublic) });
   if (session.name) params.set('name', session.name);
-  ws = new WebSocket(`${WS_BASE}/ws?${params}`);
+  ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {
     mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)));
@@ -372,14 +391,14 @@ async function handleServer(msg: any): Promise<void> {
   switch (msg.type) {
     case 'room_joined':
       for (const p of msg.peers) {
-        peerNames.set(p.id, { name: p.user_name, lang: p.lang });
-        addCell(p.id, p.user_name, p.lang, false);
+        peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
+        addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
         await mesh?.addPeer(p.id, false); // they'll initiate the offer
       }
       break;
     case 'peer_joined':
-      peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang });
-      addCell(msg.peer_id, msg.user_name, msg.lang, false);
+      peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
+      addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
@@ -425,11 +444,45 @@ async function handleServer(msg: any): Promise<void> {
       if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang) speak(text, myLang);
       break;
     }
+    // ---- Billing (only sent to authenticated speakers) ----
+    case 'balance_update':
+      if (typeof msg.balance === 'number') {
+        auth.setBalance(msg.balance);
+        setBalanceUi(msg.balance);
+        show(lowBanner, false);
+      }
+      break;
+    case 'low_balance':
+      if (typeof msg.balance === 'number') {
+        auth.setBalance(msg.balance);
+        setBalanceUi(msg.balance);
+        lowBannerText.textContent = `${t('lowBalanceWarn')} · ${auth.formatCredits(msg.balance)}`;
+        show(lowBanner, true);
+      }
+      break;
+    case 'balance_exhausted':
+      // The server closed our STT session; stop feeding it audio (WebRTC stays
+      // up so peers still hear us) and surface the buy-credits modal.
+      audioCapture?.stop();
+      auth.setBalance(0);
+      setBalanceUi(0);
+      show(exhaustedModal, true);
+      break;
+    case 'error':
+      if (msg.code === 'insufficient_balance') {
+        leaveCall();
+        homeStatusMsg(t('outOfCredits'), true);
+        if (billing) openBuyModal();
+      } else if (msg.message) {
+        // Non-fatal; surface transiently in the call header area.
+        callVis.textContent = msg.message;
+      }
+      break;
   }
 }
 
 // ---- Video grid ------------------------------------------------------------
-function addCell(id: string, name: string, lang: string, isSelf: boolean): void {
+function addCell(id: string, name: string, lang: string, isSelf: boolean, avatarSrc?: string | null): void {
   if (videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`)) return;
   const cell = document.createElement('div');
   cell.className = `video-cell${isSelf ? ' self' : ''}`;
@@ -445,10 +498,28 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean): void 
   avatar.className = 'avatar';
   avatar.hidden = true;
   avatar.style.background = avatarGradient(name);
-  const initials = document.createElement('span');
-  initials.className = 'avatar-initials';
-  initials.textContent = name.slice(0, 2).toUpperCase();
-  avatar.appendChild(initials);
+  const av = auth.avatarUrl(avatarSrc, 168);
+  if (av) {
+    const img = document.createElement('img');
+    img.className = 'avatar-img';
+    img.referrerPolicy = 'no-referrer';
+    img.alt = name;
+    img.src = av;
+    img.addEventListener('error', () => {
+      // Fall back to initials if the Google image fails to load.
+      img.remove();
+      const initials = document.createElement('span');
+      initials.className = 'avatar-initials';
+      initials.textContent = name.slice(0, 2).toUpperCase();
+      avatar.appendChild(initials);
+    });
+    avatar.appendChild(img);
+  } else {
+    const initials = document.createElement('span');
+    initials.className = 'avatar-initials';
+    initials.textContent = name.slice(0, 2).toUpperCase();
+    avatar.appendChild(initials);
+  }
   cell.appendChild(avatar);
 
   const overlay = document.createElement('div');
@@ -717,10 +788,221 @@ callRoom.addEventListener('click', async () => {
   }
 });
 
+// ============================================================================
+// Auth + billing
+// ============================================================================
+function show(el: HTMLElement, visible: boolean): void {
+  el.classList.toggle('hidden', !visible);
+}
+
+async function boot(): Promise<void> {
+  billing = await auth.billingEnabled();
+  if (billing && !auth.isLoggedIn()) {
+    showLogin();
+  } else {
+    enterHome();
+  }
+  // Returned from a Stripe checkout → refresh balance + tidy the URL.
+  if (billing && auth.isLoggedIn() && location.search.includes('checkout=success')) {
+    await auth.refreshMe();
+    renderAccount();
+    history.replaceState(null, '', location.pathname);
+  }
+}
+
+function showLogin(): void {
+  loginScreen.classList.remove('hidden');
+  homeScreen.classList.add('hidden');
+  setupGoogleSignIn();
+}
+
+function enterHome(): void {
+  loginScreen.classList.add('hidden');
+  homeScreen.classList.remove('hidden');
+  if (billing && auth.isLoggedIn()) {
+    const u = auth.getUser()!;
+    if (u.name && !nameInput.value) nameInput.value = u.name;
+    renderAccount();
+    void auth.refreshMe().then(() => renderAccount());
+  }
+  startLobby();
+}
+
+function renderAccount(): void {
+  const u = auth.getUser();
+  if (!billing || !u) {
+    accountBar.classList.add('hidden');
+    return;
+  }
+  accountBar.classList.remove('hidden');
+  accountName.textContent = u.name;
+  const av = auth.avatarUrl(u.avatar_url, 72);
+  if (av) {
+    accountAvatar.src = av;
+    accountAvatar.style.display = '';
+  } else {
+    accountAvatar.style.display = 'none';
+  }
+  setBalanceUi(u.balance);
+}
+
+function setBalanceUi(balance: number): void {
+  const low = balance < 0.5;
+  accountBalance.textContent = auth.formatCredits(balance);
+  accountBalance.classList.toggle('low', low);
+  callBalance.classList.remove('hidden');
+  callBalance.textContent = auth.formatCredits(balance);
+  callBalance.classList.toggle('low', low);
+}
+
+// --- Google Identity Services ---
+let gsiLoaded = false;
+function setupGoogleSignIn(): void {
+  const clientId = auth.getGoogleClientId();
+  const container = document.getElementById('gsi-button');
+  if (!clientId || !container) return;
+  loadGsi()
+    .then(() => {
+      const g = (window as unknown as { google?: any }).google;
+      if (!g?.accounts?.id) return;
+      g.accounts.id.initialize({ client_id: clientId, callback: onGoogleCredential });
+      container.innerHTML = '';
+      g.accounts.id.renderButton(container, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with' });
+    })
+    .catch(() => {});
+}
+
+function loadGsi(): Promise<void> {
+  if (gsiLoaded) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.defer = true;
+    s.onload = () => {
+      gsiLoaded = true;
+      resolve();
+    };
+    s.onerror = () => reject(new Error('gsi load failed'));
+    document.head.appendChild(s);
+  });
+}
+
+async function onGoogleCredential(resp: { credential?: string }): Promise<void> {
+  if (!resp.credential) return;
+  try {
+    await auth.loginWithGoogle(resp.credential);
+    enterHome();
+  } catch {
+    /* stay on the login screen; the user can retry */
+  }
+}
+
+$('guest-btn').addEventListener('click', () => enterHome());
+$('logout-btn').addEventListener('click', () => {
+  auth.clearSession();
+  accountBar.classList.add('hidden');
+  showLogin();
+});
+
+// --- Buy-credits modal ---
+function openBuyModal(): void {
+  show(buyModal, true);
+  const u = auth.getUser();
+  if (u) modalBalance.textContent = auth.formatCredits(u.balance);
+  void renderPackages();
+  selectTab('history');
+}
+
+async function renderPackages(): Promise<void> {
+  packagesList.innerHTML = '';
+  const pkgs = await auth.fetchPackages();
+  for (const p of pkgs) {
+    const btn = document.createElement('button');
+    btn.className = 'pkg';
+    btn.type = 'button';
+    const left = document.createElement('div');
+    const name = document.createElement('div');
+    name.className = 'pkg-name';
+    name.textContent = p.name;
+    const credits = document.createElement('div');
+    credits.className = 'pkg-credits';
+    credits.textContent = `${auth.formatCredits(p.credits_usd)} ${t('history').toLowerCase()}`;
+    left.append(name, credits);
+    const price = document.createElement('span');
+    price.className = 'pkg-price';
+    price.textContent = auth.formatCredits(p.price_usd);
+    btn.append(left, price);
+    btn.addEventListener('click', () => checkout(p.id, btn));
+    packagesList.appendChild(btn);
+  }
+}
+
+async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    location.href = await auth.startCheckout(pkgId);
+  } catch {
+    btn.disabled = false;
+  }
+}
+
+function selectTab(which: 'history' | 'usage'): void {
+  $('tab-history').classList.toggle('active', which === 'history');
+  $('tab-usage').classList.toggle('active', which === 'usage');
+  void loadLedger(which);
+}
+
+async function loadLedger(which: 'history' | 'usage'): Promise<void> {
+  ledgerList.innerHTML = '';
+  const rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ledger-empty';
+    empty.textContent = t('noActivity');
+    ledgerList.appendChild(empty);
+    return;
+  }
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'ledger-row';
+    const desc = document.createElement('span');
+    desc.className = 'ledger-desc';
+    const amount = document.createElement('span');
+    amount.className = 'ledger-amount';
+    if (which === 'history') {
+      desc.textContent = r.description || r.kind;
+      amount.textContent = `${r.amount >= 0 ? '+' : ''}${auth.formatCredits(r.amount)}`;
+      amount.classList.add(r.amount >= 0 ? 'pos' : 'neg');
+    } else {
+      desc.textContent = `${r.room} · ${Math.round(r.speaking_seconds)}s`;
+      amount.textContent = `-${auth.formatCredits(r.cost)}`;
+      amount.classList.add('neg');
+    }
+    row.append(desc, amount);
+    ledgerList.appendChild(row);
+  }
+}
+
+$('buy-btn').addEventListener('click', openBuyModal);
+$('buy-close').addEventListener('click', () => show(buyModal, false));
+buyModal.addEventListener('click', (e) => {
+  if (e.target === buyModal) show(buyModal, false);
+});
+$('low-banner-buy').addEventListener('click', openBuyModal);
+$('tab-history').addEventListener('click', () => selectTab('history'));
+$('tab-usage').addEventListener('click', () => selectTab('usage'));
+$('exhausted-dismiss').addEventListener('click', () => show(exhaustedModal, false));
+$('exhausted-buy').addEventListener('click', () => {
+  show(exhaustedModal, false);
+  openBuyModal();
+});
+
 // ---- Boot ------------------------------------------------------------------
 window.addEventListener('resize', layoutVideos);
 window.addEventListener('orientationchange', () => setTimeout(layoutVideos, 200));
 $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
-startLobby();
+$('logout-btn').innerHTML = icon('leave', 16);
+void boot();

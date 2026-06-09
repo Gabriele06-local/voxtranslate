@@ -1,0 +1,224 @@
+//! Real-time usage metering for a single speaking session.
+//!
+//! While a user is actively speaking (a Deepgram session is open), the meter
+//! deducts credits every `interval_secs`. It pushes a `balance_update` to the
+//! speaker after each charge, warns once with `low_balance` when crossing the
+//! threshold, and on exhaustion emits `balance_exhausted` and signals the caller
+//! (via `exhaust_tx`) to drop the audio session — the WebRTC call stays up.
+//!
+//! Guests aren't billed; with `GUEST_MAX_MINUTES` set they get a time cap via
+//! [`run_guest_meter`] instead (cumulative across speaking bursts).
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use rust_decimal::prelude::ToPrimitive;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
+use uuid::Uuid;
+
+use crate::billing::{usd, BillingError, BillingService};
+use crate::protocol::ServerMessage;
+
+/// Per-session metering parameters.
+#[derive(Debug, Clone)]
+pub struct MeterConfig {
+    pub interval_secs: u64,
+    pub rate_per_second: f64,
+    pub low_balance_threshold: f64,
+}
+
+/// Charge a billed user for one speaking session. Runs until `cancel` resolves
+/// (Stop / disconnect) or credits run out.
+pub async fn run_usage_meter(
+    billing: BillingService,
+    user_id: Uuid,
+    session_id: Uuid,
+    cfg: MeterConfig,
+    out_tx: UnboundedSender<String>,
+    exhaust_tx: UnboundedSender<()>,
+    mut cancel: oneshot::Receiver<()>,
+) {
+    let interval = cfg.interval_secs.max(1);
+    let amount = usd(cfg.rate_per_second * interval as f64);
+    let mut ticker = tokio::time::interval(Duration::from_secs(interval));
+    ticker.tick().await; // consume the immediate first tick (charge in arrears)
+    let mut warned_low = false;
+
+    loop {
+        tokio::select! {
+            _ = &mut cancel => break,
+            _ = ticker.tick() => {
+                match billing
+                    .deduct_usage(user_id, Some(session_id), interval as i32, amount)
+                    .await
+                {
+                    Ok(balance) => {
+                        let bal = balance.to_f64().unwrap_or(0.0);
+                        let _ = out_tx.send(ServerMessage::BalanceUpdate { balance: bal }.to_json());
+                        if !warned_low && bal < cfg.low_balance_threshold {
+                            warned_low = true;
+                            let _ = out_tx
+                                .send(ServerMessage::LowBalance { balance: bal }.to_json());
+                        }
+                    }
+                    Err(BillingError::InsufficientFunds) => {
+                        let _ = out_tx.send(ServerMessage::BalanceExhausted.to_json());
+                        let _ = exhaust_tx.send(());
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!("usage deduct failed: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Cap a guest's cumulative speaking time. `spent` accumulates across speaking
+/// bursts; once it reaches `cap_secs` the audio is stopped (no billing).
+pub async fn run_guest_meter(
+    spent: Arc<AtomicU64>,
+    cap_secs: u64,
+    interval_secs: u64,
+    out_tx: UnboundedSender<String>,
+    exhaust_tx: UnboundedSender<()>,
+    mut cancel: oneshot::Receiver<()>,
+) {
+    let interval = interval_secs.max(1);
+    let mut ticker = tokio::time::interval(Duration::from_secs(interval));
+    ticker.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = &mut cancel => break,
+            _ = ticker.tick() => {
+                let total = spent.fetch_add(interval, Ordering::SeqCst) + interval;
+                if total >= cap_secs {
+                    let _ = out_tx.send(ServerMessage::BalanceExhausted.to_json());
+                    let _ = exhaust_tx.send(());
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn guest_meter_stops_at_cap() {
+        let spent = Arc::new(AtomicU64::new(0));
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+
+        // cap 2s, tick 1s -> exhausts after the second tick.
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            run_guest_meter(spent.clone(), 2, 1, out_tx, exhaust_tx, cancel_rx),
+        )
+        .await
+        .expect("meter should finish at cap");
+
+        assert!(exhaust_rx.try_recv().is_ok(), "exhaust signalled");
+        let msg = out_rx.try_recv().expect("a message was sent");
+        assert!(msg.contains("balance_exhausted"));
+        assert!(spent.load(Ordering::SeqCst) >= 2);
+    }
+
+    /// DB-gated: a billed meter deducts each interval, pushes `balance_update`,
+    /// warns once with `low_balance`, and finally `balance_exhausted` + signals.
+    /// Uses real 1s intervals (≈3s) with an aggressive rate so the balance drains
+    /// in three ticks. Skipped without `DATABASE_URL`.
+    #[tokio::test]
+    async fn billed_meter_update_low_then_exhaust() {
+        use rust_decimal::Decimal;
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        let svc = BillingService::new(pool.clone(), Decimal::ZERO);
+
+        let uid: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'M', $3) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@x.com", Uuid::new_v4()))
+        .bind(Decimal::new(30, 2)) // 0.30
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let sid = svc.create_session(uid, "room-m").await.unwrap();
+
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let cfg = MeterConfig {
+            interval_secs: 1,
+            rate_per_second: 0.125, // 0.125 per 1s tick: 0.30 -> 0.175 -> 0.05 -> exhaust
+            low_balance_threshold: 1.0,
+        };
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            run_usage_meter(svc, uid, sid, cfg, out_tx, exhaust_tx, cancel_rx),
+        )
+        .await
+        .expect("meter finishes on exhaust");
+
+        let mut msgs = Vec::new();
+        while let Ok(m) = out_rx.try_recv() {
+            msgs.push(m);
+        }
+        assert!(msgs.iter().any(|m| m.contains("balance_update")), "update");
+        let lows = msgs.iter().filter(|m| m.contains("low_balance")).count();
+        assert_eq!(lows, 1, "low_balance warns exactly once");
+        assert!(
+            msgs.iter().any(|m| m.contains("balance_exhausted")),
+            "exhaust"
+        );
+        assert!(exhaust_rx.try_recv().is_ok(), "exhaust signalled");
+
+        // Two successful 1s deductions were recorded against the session.
+        let (secs, cost, balance): (i32, Decimal, Decimal) = sqlx::query_as(
+            "SELECT s.speaking_seconds, s.cost, u.balance
+             FROM usage_sessions s JOIN users u ON u.id = s.user_id
+             WHERE s.id = $1",
+        )
+        .bind(sid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(secs, 2);
+        assert_eq!(cost, Decimal::new(25, 2)); // 0.25
+        assert_eq!(balance, Decimal::new(5, 2)); // 0.05, never negative
+    }
+
+    #[tokio::test]
+    async fn guest_meter_cancels_cleanly() {
+        let spent = Arc::new(AtomicU64::new(0));
+        let (out_tx, _out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+
+        let handle = tokio::spawn(run_guest_meter(
+            spent, 3600, 1, out_tx, exhaust_tx, cancel_rx,
+        ));
+        // Cancel before the cap is ever reached.
+        drop(cancel_tx);
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("meter exits on cancel")
+            .unwrap();
+        assert!(exhaust_rx.try_recv().is_err(), "no exhaust on cancel");
+    }
+}

@@ -8,7 +8,7 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
-      include: ['src/scripts/webrtc.ts', 'src/scripts/audio-capture.ts'],
+      include: ['src/scripts/webrtc.ts', 'src/scripts/audio-capture.ts', 'src/scripts/auth.ts'],
       reporter: ['text', 'json-summary'],
       reportsDirectory: './coverage-unit',
       thresholds: { lines: 85, functions: 85 },

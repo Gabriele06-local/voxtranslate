@@ -27,6 +27,8 @@ fn make_state() -> (AppState, bool) {
                 deepgram_key: "dummy".into(),
                 groq_key: "dummy".into(),
                 port: 0,
+                allowed_origins: vec![],
+                billing: None,
             }),
             false,
         ),
@@ -265,6 +267,8 @@ async fn deepgram_unavailable_sends_error() {
         deepgram_key: "bad-deepgram-key".into(),
         groq_key: groq,
         port: 0,
+        allowed_origins: vec![],
+        billing: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
