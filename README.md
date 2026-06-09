@@ -1,5 +1,7 @@
 # VoxTranslate
 
+[![CI](https://github.com/micio86dev/voxtranslate/actions/workflows/ci.yml/badge.svg)](https://github.com/micio86dev/voxtranslate/actions/workflows/ci.yml)
+
 Real-time **translated video calls**. Up to 4 people talk face-to-face over P2P
 WebRTC, each in their own language — speech is transcribed, translated into every
 participant's language in parallel, and shown as live subtitles on each speaker's

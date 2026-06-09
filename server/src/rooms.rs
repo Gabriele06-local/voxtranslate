@@ -47,16 +47,20 @@ impl RoomManager {
 
     /// Add a peer to a room (creating it with `visibility` if new). Returns the
     /// list of peers that were already present, or `Err(())` if the room is full.
+    #[allow(clippy::result_unit_err)] // `()` = "room full"; a richer error isn't needed
     pub fn join(
         &self,
         room_id: &str,
         peer: Peer,
         visibility: Visibility,
     ) -> Result<Vec<PeerInfo>, ()> {
-        let mut room = self.rooms.entry(room_id.to_string()).or_insert_with(|| Room {
-            visibility,
-            peers: Vec::new(),
-        });
+        let mut room = self
+            .rooms
+            .entry(room_id.to_string())
+            .or_insert_with(|| Room {
+                visibility,
+                peers: Vec::new(),
+            });
         if room.peers.len() >= MAX_PEERS {
             return Err(());
         }
@@ -78,13 +82,15 @@ impl RoomManager {
         if let Some(mut room) = self.rooms.get_mut(room_id) {
             room.peers.retain(|p| p.id != id);
         }
-        self.rooms.remove_if(room_id, |_, room| room.peers.is_empty());
+        self.rooms
+            .remove_if(room_id, |_, room| room.peers.is_empty());
     }
 
     /// Send to every peer in the room, pruning dead channels.
     pub fn broadcast(&self, room_id: &str, message: &str) {
         if let Some(mut room) = self.rooms.get_mut(room_id) {
-            room.peers.retain(|p| p.tx.send(message.to_string()).is_ok());
+            room.peers
+                .retain(|p| p.tx.send(message.to_string()).is_ok());
         }
     }
 
@@ -162,7 +168,12 @@ mod tests {
     fn peer(id: &str, lang: &str) -> (Peer, UnboundedReceiver<String>) {
         let (tx, rx) = unbounded_channel();
         (
-            Peer { id: id.into(), name: id.to_uppercase(), lang: lang.into(), tx },
+            Peer {
+                id: id.into(),
+                name: id.to_uppercase(),
+                lang: lang.into(),
+                tx,
+            },
             rx,
         )
     }
@@ -181,7 +192,10 @@ mod tests {
         let (d, _rd) = peer("d", "fr");
         rm.join("r", d, Visibility::Public).unwrap();
         let (e, _re) = peer("e", "de");
-        assert!(rm.join("r", e, Visibility::Public).is_err(), "5th peer rejected");
+        assert!(
+            rm.join("r", e, Visibility::Public).is_err(),
+            "5th peer rejected"
+        );
     }
 
     #[test]

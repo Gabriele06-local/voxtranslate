@@ -163,7 +163,10 @@ async fn lifecycle_signaling_mute_and_lobby() {
     assert_eq!(pm["kind"], "audio");
     assert_eq!(pm["muted"], true);
     send_text(&mut a, r#"{"type":"mute_video","muted":true}"#).await;
-    assert_eq!(wait_for(&mut b, "peer_muted", 1000).await.unwrap()["kind"], "video");
+    assert_eq!(
+        wait_for(&mut b, "peer_muted", 1000).await.unwrap()["kind"],
+        "video"
+    );
 
     // Unknown control frame is ignored (no crash, connection stays up).
     send_text(&mut a, r#"{"type":"nonsense"}"#).await;
@@ -204,7 +207,9 @@ async fn chat_is_translated_and_broadcast() {
     let _ = wait_for(&mut a, "peer_joined", 1000).await;
 
     send_text(&mut a, r#"{"type":"chat","text":"ciao a tutti"}"#).await;
-    let msg = wait_for(&mut b, "chat_message", 8000).await.expect("chat_message");
+    let msg = wait_for(&mut b, "chat_message", 8000)
+        .await
+        .expect("chat_message");
     assert_eq!(msg["sender_id"], "a");
     assert_eq!(msg["original"], "ciao a tutti");
     assert_eq!(msg["translations"]["it"], "ciao a tutti");
@@ -234,10 +239,7 @@ async fn audio_produces_subtitles() {
     send_text(&mut speaker, r#"{"type":"start"}"#).await;
     tokio::time::sleep(Duration::from_millis(150)).await;
     for chunk in audio.chunks(1024) {
-        speaker
-            .send(Message::binary(chunk.to_vec()))
-            .await
-            .unwrap();
+        speaker.send(Message::binary(chunk.to_vec())).await.unwrap();
         tokio::time::sleep(Duration::from_millis(120)).await;
     }
     tokio::time::sleep(Duration::from_millis(2000)).await;

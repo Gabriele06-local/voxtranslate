@@ -19,9 +19,17 @@ jobs:
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
+      - name: Rustfmt
+        working-directory: server
+        run: cargo fmt --check
+      - name: Clippy
+        working-directory: server
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Server build + tests
         working-directory: server
         run: |

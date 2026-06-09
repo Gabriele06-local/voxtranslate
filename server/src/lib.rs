@@ -230,14 +230,22 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                     state.rooms.relay_to_peer(
                         &room,
                         &to,
-                        &ServerMessage::Offer { from: id.clone(), sdp }.to_json(),
+                        &ServerMessage::Offer {
+                            from: id.clone(),
+                            sdp,
+                        }
+                        .to_json(),
                     );
                 }
                 Ok(ClientMessage::Answer { to, sdp }) => {
                     state.rooms.relay_to_peer(
                         &room,
                         &to,
-                        &ServerMessage::Answer { from: id.clone(), sdp }.to_json(),
+                        &ServerMessage::Answer {
+                            from: id.clone(),
+                            sdp,
+                        }
+                        .to_json(),
                     );
                 }
                 Ok(ClientMessage::Ice { to, candidate }) => {

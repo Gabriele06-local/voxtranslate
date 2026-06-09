@@ -19,17 +19,29 @@ pub enum ClientMessage {
     /// End the speaking session (flush + close Deepgram).
     Stop,
     /// WebRTC signaling, relayed verbatim to peer `to` (server adds `from`).
-    Offer { to: String, sdp: String },
-    Answer { to: String, sdp: String },
+    Offer {
+        to: String,
+        sdp: String,
+    },
+    Answer {
+        to: String,
+        sdp: String,
+    },
     Ice {
         to: String,
         candidate: serde_json::Value,
     },
     /// A chat message to be translated and broadcast to the room.
-    Chat { text: String },
+    Chat {
+        text: String,
+    },
     /// Local mute state, broadcast to peers for UI indicators.
-    MuteAudio { muted: bool },
-    MuteVideo { muted: bool },
+    MuteAudio {
+        muted: bool,
+    },
+    MuteVideo {
+        muted: bool,
+    },
 }
 
 // --- Server -> Client ------------------------------------------------------
@@ -58,13 +70,21 @@ pub enum ServerMessage {
         lang: String,
     },
     /// A peer left.
-    PeerLeft { peer_id: String },
+    PeerLeft {
+        peer_id: String,
+    },
     /// The room already has the maximum number of peers; the join is rejected.
     RoomFull,
 
     /// WebRTC signaling relayed from peer `from`.
-    Offer { from: String, sdp: String },
-    Answer { from: String, sdp: String },
+    Offer {
+        from: String,
+        sdp: String,
+    },
+    Answer {
+        from: String,
+        sdp: String,
+    },
     Ice {
         from: String,
         candidate: serde_json::Value,
@@ -106,15 +126,16 @@ pub enum ServerMessage {
     },
 
     /// Non-fatal error surfaced to a peer.
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 impl ServerMessage {
     /// Serialize to a JSON string for sending over a text frame.
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| {
-            r#"{"type":"error","message":"serialization failed"}"#.to_string()
-        })
+        serde_json::to_string(self)
+            .unwrap_or_else(|_| r#"{"type":"error","message":"serialization failed"}"#.to_string())
     }
 }
 
@@ -208,28 +229,75 @@ mod tests {
 
     #[test]
     fn server_message_type_tags() {
-        assert!(ServerMessage::RoomFull.to_json().contains("\"type\":\"room_full\""));
-        assert!(ServerMessage::PeerLeft { peer_id: "p".into() }.to_json().contains("\"type\":\"peer_left\""));
-        let m = ServerMessage::PeerMuted { peer_id: "a".into(), kind: "audio".into(), muted: true }.to_json();
+        assert!(ServerMessage::RoomFull
+            .to_json()
+            .contains("\"type\":\"room_full\""));
+        assert!(ServerMessage::PeerLeft {
+            peer_id: "p".into()
+        }
+        .to_json()
+        .contains("\"type\":\"peer_left\""));
+        let m = ServerMessage::PeerMuted {
+            peer_id: "a".into(),
+            kind: "audio".into(),
+            muted: true,
+        }
+        .to_json();
         assert!(m.contains("\"type\":\"peer_muted\"") && m.contains("\"muted\":true"));
         let s = ServerMessage::SubtitleFinal {
-            speaker_id: "s".into(), speaker_name: "n".into(), original: "ciao".into(),
-            lang: "it".into(), translations: std::collections::HashMap::new(),
-        }.to_json();
+            speaker_id: "s".into(),
+            speaker_name: "n".into(),
+            original: "ciao".into(),
+            lang: "it".into(),
+            translations: std::collections::HashMap::new(),
+        }
+        .to_json();
         assert!(s.contains("\"type\":\"subtitle_final\"") && s.contains("\"original\":\"ciao\""));
-        assert!(ServerMessage::Error { message: "x".into() }.to_json().contains("\"type\":\"error\""));
+        assert!(ServerMessage::Error {
+            message: "x".into()
+        }
+        .to_json()
+        .contains("\"type\":\"error\""));
     }
 
     #[test]
     fn client_message_parsing() {
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"start"}"#).unwrap(), ClientMessage::Start));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"stop"}"#).unwrap(), ClientMessage::Stop));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"chat","text":"hi"}"#).unwrap(), ClientMessage::Chat { .. }));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"offer","to":"p","sdp":"s"}"#).unwrap(), ClientMessage::Offer { .. }));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"answer","to":"p","sdp":"s"}"#).unwrap(), ClientMessage::Answer { .. }));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"ice","to":"p","candidate":{}}"#).unwrap(), ClientMessage::Ice { .. }));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"mute_audio","muted":true}"#).unwrap(), ClientMessage::MuteAudio { muted: true }));
-        assert!(matches!(serde_json::from_str::<ClientMessage>(r#"{"type":"mute_video","muted":false}"#).unwrap(), ClientMessage::MuteVideo { muted: false }));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"start"}"#).unwrap(),
+            ClientMessage::Start
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"stop"}"#).unwrap(),
+            ClientMessage::Stop
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"chat","text":"hi"}"#).unwrap(),
+            ClientMessage::Chat { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"offer","to":"p","sdp":"s"}"#)
+                .unwrap(),
+            ClientMessage::Offer { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"answer","to":"p","sdp":"s"}"#)
+                .unwrap(),
+            ClientMessage::Answer { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"ice","to":"p","candidate":{}}"#)
+                .unwrap(),
+            ClientMessage::Ice { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"mute_audio","muted":true}"#).unwrap(),
+            ClientMessage::MuteAudio { muted: true }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"mute_video","muted":false}"#)
+                .unwrap(),
+            ClientMessage::MuteVideo { muted: false }
+        ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
     }
 
@@ -242,13 +310,22 @@ mod tests {
         assert!((c - 0.9).abs() < 1e-3);
 
         let empty = r#"{"type":"Results","channel":{"alternatives":[{"transcript":"  ","confidence":0.4}]}}"#;
-        assert!(serde_json::from_str::<DeepgramResponse>(empty).unwrap().best_alternative().is_none());
+        assert!(serde_json::from_str::<DeepgramResponse>(empty)
+            .unwrap()
+            .best_alternative()
+            .is_none());
 
         let meta = r#"{"type":"Metadata"}"#;
-        assert!(serde_json::from_str::<DeepgramResponse>(meta).unwrap().best_alternative().is_none());
+        assert!(serde_json::from_str::<DeepgramResponse>(meta)
+            .unwrap()
+            .best_alternative()
+            .is_none());
 
         let no_alt = r#"{"type":"Results","channel":{"alternatives":[]}}"#;
-        assert!(serde_json::from_str::<DeepgramResponse>(no_alt).unwrap().best_alternative().is_none());
+        assert!(serde_json::from_str::<DeepgramResponse>(no_alt)
+            .unwrap()
+            .best_alternative()
+            .is_none());
     }
 
     #[test]
@@ -257,7 +334,9 @@ mod tests {
         assert_eq!(p.room, "r");
         assert_eq!(p.lang, "it");
         assert!(p.name.is_none() && p.id.is_none() && p.public.is_none());
-        let p2: WsParams = serde_json::from_str(r#"{"room":"r","lang":"it","name":"A","id":"x","public":true}"#).unwrap();
+        let p2: WsParams =
+            serde_json::from_str(r#"{"room":"r","lang":"it","name":"A","id":"x","public":true}"#)
+                .unwrap();
         assert_eq!(p2.public, Some(true));
     }
 }
