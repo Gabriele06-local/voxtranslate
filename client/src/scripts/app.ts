@@ -34,6 +34,10 @@ const roomsList = $('rooms-list');
 const previewVideo = $<HTMLVideoElement>('preview');
 const camSelect = $<HTMLSelectElement>('cam-select');
 const micSelect = $<HTMLSelectElement>('mic-select');
+const preMic = $<HTMLButtonElement>('pre-mic');
+const preCam = $<HTMLButtonElement>('pre-cam');
+const previewOff = $('preview-off');
+const previewAvatar = $('preview-avatar');
 const prejoinRoom = $('prejoin-room');
 const prejoinVis = $('prejoin-vis');
 const prejoinStatus = $('prejoin-status');
@@ -70,6 +74,7 @@ let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign
 let manualClose = false;
 
 const peerNames = new Map<string, { name: string; lang: string }>();
+const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
 const subtitleTimers = new Map<string, number>();
 
 // ============================================================================
@@ -187,6 +192,8 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   prejoinRoom.textContent = room;
   prejoinVis.textContent = isPublic ? t('public') : t('private');
   prejoinStatus.textContent = '';
+  micOn = true;
+  camOn = true;
   try {
     await acquireMedia();
     await populateDevices();
@@ -195,6 +202,37 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
     prejoinStatus.classList.add('error');
   }
 }
+
+// Apply the current mic/camera toggle state to the preview stream + UI. Used in
+// the pre-join screen so you enter the room already muted / camera-off.
+function applyPreToggles(): void {
+  const hasVideo = !!localStream && localStream.getVideoTracks().length > 0;
+  if (!hasVideo) camOn = false;
+  if (localStream) {
+    localStream.getAudioTracks().forEach((tr) => (tr.enabled = micOn));
+    localStream.getVideoTracks().forEach((tr) => (tr.enabled = camOn));
+  }
+  // Preview overlay when the camera is off.
+  previewOff.hidden = camOn && hasVideo;
+  if (!previewOff.hidden) {
+    const name = nameInput.value.trim() || t('namePlaceholder');
+    previewAvatar.textContent = name.slice(0, 2).toUpperCase();
+    previewAvatar.style.background = avatarGradient(name);
+  }
+  preMic.classList.toggle('active-danger', !micOn);
+  preMic.innerHTML = icon(micOn ? 'mic' : 'mic-off');
+  preCam.classList.toggle('active-danger', !camOn);
+  preCam.innerHTML = icon(camOn ? 'video' : 'video-off');
+}
+
+preMic.addEventListener('click', () => {
+  micOn = !micOn;
+  applyPreToggles();
+});
+preCam.addEventListener('click', () => {
+  camOn = !camOn;
+  applyPreToggles();
+});
 
 async function acquireMedia(): Promise<void> {
   const camId = camSelect.value;
@@ -215,14 +253,14 @@ async function acquireMedia(): Promise<void> {
   if (localStream) localStream.getTracks().forEach((t2) => t2.stop());
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio, video });
-    camOn = true;
   } catch {
     // Fall back to audio-only (no camera available / denied video).
     localStream = await navigator.mediaDevices.getUserMedia({ audio });
-    camOn = false;
   }
   previewVideo.srcObject = localStream;
   void previewVideo.play().catch(() => {});
+  // Re-apply the current mic/camera toggle state to the new tracks.
+  applyPreToggles();
 }
 
 async function populateDevices(): Promise<void> {
@@ -275,14 +313,14 @@ function startCall(): void {
   videoGrid.innerHTML = '';
   peerNames.clear();
 
-  micOn = true;
-  camOn = localStream.getVideoTracks().length > 0 && localStream.getVideoTracks()[0].enabled;
+  // micOn / camOn carry over from the pre-join toggles.
   setControlState();
 
-  // Self cell.
+  // Self cell — reflect the pre-join mic/camera choice.
   addCell(myId, session.name || t('namePlaceholder'), session.lang, true);
   attachStream(myId, localStream);
   setCameraOff(myId, !camOn);
+  setAudioMuted(myId, !micOn);
 
   manualClose = false;
   openSocket();
@@ -298,9 +336,15 @@ function openSocket(): void {
     mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)));
     mesh.onRemoteStream = (peerId, stream) => attachStream(peerId, stream);
     mesh.onPeerRemoved = (peerId) => removeCell(peerId);
+    mesh.setAudioEnabled(micOn);
+    mesh.setVideoEnabled(camOn);
 
     audioCapture = new AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
+
+    // Tell peers if we joined already muted / camera-off so their UI matches.
+    if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
+    if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
 
     chat = new ChatManager({ myLang: session!.lang, myId, container: chatMessages, ws: ws! });
     chat.onUnread = (n) => {
@@ -337,6 +381,9 @@ async function handleServer(msg: any): Promise<void> {
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang });
       addCell(msg.peer_id, msg.user_name, msg.lang, false);
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
+      // Re-announce our current mute/camera state so the newcomer's UI matches.
+      if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
+      if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
       break;
     case 'peer_left':
       mesh?.removePeer(msg.peer_id);
@@ -359,8 +406,12 @@ async function handleServer(msg: any): Promise<void> {
       chat?.addMessage(msg as ChatPayload);
       break;
     case 'peer_muted':
-      if (msg.kind === 'audio') setAudioMuted(msg.peer_id, msg.muted);
-      else setCameraOff(msg.peer_id, msg.muted);
+      if (msg.kind === 'audio') {
+        setAudioMuted(msg.peer_id, msg.muted);
+      } else {
+        peerCamOff.set(msg.peer_id, msg.muted);
+        setCameraOff(msg.peer_id, msg.muted);
+      }
       break;
     case 'subtitle_interim':
       showSubtitle(msg.speaker_id, msg.text, true);
@@ -427,6 +478,7 @@ function removeCell(id: string): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
   if (cell) cell.remove();
   peerNames.delete(id);
+  peerCamOff.delete(id);
   updateGridCount();
 }
 
@@ -474,8 +526,10 @@ function attachStream(id: string, stream: MediaStream): void {
   const video = cell.querySelector('video') as HTMLVideoElement;
   video.srcObject = stream;
   void video.play().catch(() => {});
+  // A disabled remote track still counts, so a known camera-off state (from
+  // peer_muted) takes precedence over the raw track count.
   const hasVideo = stream.getVideoTracks().length > 0;
-  if (id !== myId) setCameraOff(id, !hasVideo);
+  if (id !== myId) setCameraOff(id, peerCamOff.get(id) ?? !hasVideo);
   applyAudioMode();
 }
 
