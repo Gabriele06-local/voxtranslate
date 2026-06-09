@@ -17,3 +17,6 @@
 # Test artifacts
 /sample.aiff
 /sample.webm
+/*.webm
+/*.aiff
+/*.png
