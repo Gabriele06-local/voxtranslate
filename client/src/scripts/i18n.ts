@@ -32,6 +32,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: 'Fullscreen', pipTip: 'Picture in Picture', participants: 'Participants', participantsTip: 'Participants',
     handRaisedNotif: 'raised hand',
     pinTip: 'Pin video', unpinTip: 'Unpin video', viewGrid: 'Grid view', viewSpeaker: 'Speaker view',
+    screenShareTip: 'Share screen', stopShare: 'Stop sharing', recordingTip: 'Record', recording: 'Recording…',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -49,6 +50,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: 'Schermo intero', pipTip: 'Picture in Picture', participants: 'Partecipanti', participantsTip: 'Partecipanti',
     handRaisedNotif: 'ha alzato la mano',
     pinTip: 'Fissa video', unpinTip: 'Rimuovi fissaggio', viewGrid: 'Griglia', viewSpeaker: 'Relatore',
+    screenShareTip: 'Condividi schermo', stopShare: 'Ferma condivisione', recordingTip: 'Registra', recording: 'Registrazione…',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -66,6 +68,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: 'Pantalla completa', pipTip: 'Picture in Picture', participants: 'Participantes', participantsTip: 'Participantes',
     handRaisedNotif: 'levantó la mano',
     pinTip: 'Fijar video', unpinTip: 'Desfijar video', viewGrid: 'Cuadrícula', viewSpeaker: 'Orador',
+    screenShareTip: 'Compartir pantalla', stopShare: 'Dejar de compartir', recordingTip: 'Grabar', recording: 'Grabando…',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -83,6 +86,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: 'Plein écran', pipTip: 'Picture in Picture', participants: 'Participants', participantsTip: 'Participants',
     handRaisedNotif: 'a levé la main',
     pinTip: 'Épingler', unpinTip: 'Détacher', viewGrid: 'Grille', viewSpeaker: 'Intervenant',
+    screenShareTip: 'Partager écran', stopShare: 'Arrêter partage', recordingTip: 'Enregistrer', recording: 'Enregistrement…',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -100,6 +104,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: 'Vollbild', pipTip: 'Bild im Bild', participants: 'Teilnehmer', participantsTip: 'Teilnehmer',
     handRaisedNotif: 'hat die Hand gehoben',
     pinTip: 'Video anheften', unpinTip: 'Loslösen', viewGrid: 'Raster', viewSpeaker: 'Sprecher',
+    screenShareTip: 'Bildschirm teilen', stopShare: 'Teilen beenden', recordingTip: 'Aufnehmen', recording: 'Aufnahme…',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -117,6 +122,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: 'Tela cheia', pipTip: 'Picture in Picture', participants: 'Participantes', participantsTip: 'Participantes',
     handRaisedNotif: 'levantou a mão',
     pinTip: 'Fixar vídeo', unpinTip: 'Desafixar', viewGrid: 'Grade', viewSpeaker: 'Orador',
+    screenShareTip: 'Compartilhar tela', stopShare: 'Parar compartilhamento', recordingTip: 'Gravar', recording: 'Gravando…',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -134,6 +140,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: '全画面', pipTip: 'ピクチャーインピクチャー', participants: '参加者', participantsTip: '参加者',
     handRaisedNotif: 'が手を上げました',
     pinTip: 'ピン固定', unpinTip: 'ピン解除', viewGrid: 'グリッド', viewSpeaker: 'スピーカー',
+    screenShareTip: '画面共有', stopShare: '共有停止', recordingTip: '録画', recording: '録画中…',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -151,6 +158,7 @@ export const I18N: Record<string, Dict> = {
     fullscreenTip: '全屏', pipTip: '画中画', participants: '参与者', participantsTip: '参与者',
     handRaisedNotif: '举了手',
     pinTip: '固定视频', unpinTip: '取消固定', viewGrid: '网格', viewSpeaker: '演讲者',
+    screenShareTip: '共享屏幕', stopShare: '停止共享', recordingTip: '录制', recording: '录制中…',
   },
 };
 

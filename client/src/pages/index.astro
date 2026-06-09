@@ -121,6 +121,8 @@ const LANGS = [
           <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
           <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
           <button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button>
+          <button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button>
+          <button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button>
           <button id="btn-chat" class="control-btn" data-i18n-title="chatTip"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
         </div>
@@ -287,6 +289,9 @@ const LANGS = [
     .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; }
     .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
     .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
+    .video-grid :global(.pin-btn) { margin-left: auto; cursor: pointer; color: var(--muted); display: inline-flex; transition: color 0.15s; }
+    .video-grid :global(.pin-btn:hover) { color: var(--accent); }
+    .video-grid :global(.screen-share-badge) { margin-left: 4px; font-size: 0.9rem; }
     .video-grid :global(.hand-indicator) {
       position: absolute; top: 8px; right: 8px; font-size: 1.4rem;
       animation: hand-wave 1s ease-in-out infinite alternate;

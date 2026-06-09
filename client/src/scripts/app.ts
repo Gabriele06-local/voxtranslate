@@ -59,6 +59,8 @@ const btnFullscreen = $('btn-fullscreen');
 const btnPip = $('btn-pip');
 const btnParticipants = $('btn-participants');
 const btnView = $('btn-view');
+const btnShare = $('btn-share');
+const btnRecord = $('btn-record');
 const notifBanner = $('notif-banner');
 const participantsPanel = $('participants-panel');
 const participantsList = $('participants-list');
@@ -87,6 +89,11 @@ let manualClose = false;
 let viewMode: 'grid' | 'speaker' = 'grid';
 let pinnedPeerId: string | null = null;
 let lastSpeakerId: string | null = null;
+let isSharingScreen = false;
+let screenStream: MediaStream | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let isRecording = false;
+let recordedChunks: Blob[] = [];
 
 const peerNames = new Map<string, { name: string; lang: string }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
@@ -817,6 +824,12 @@ function setControlState(): void {
   btnPip.innerHTML = icon('pip');
   btnView.innerHTML = icon(viewMode === 'speaker' ? 'speaker' : 'grid');
   btnView.title = t(viewMode === 'speaker' ? 'viewGrid' : 'viewSpeaker');
+  btnShare.innerHTML = icon(isSharingScreen ? 'monitor' : 'monitor');
+  btnShare.classList.toggle('active-success', isSharingScreen);
+  btnShare.title = isSharingScreen ? t('stopShare') : t('screenShareTip');
+  btnRecord.innerHTML = icon('recording');
+  btnRecord.classList.toggle('active-danger', isRecording);
+  btnRecord.title = isRecording ? t('recording') : t('recordingTip');
   const partIco = btnParticipants.querySelector('.part-ico');
   if (partIco) partIco.innerHTML = icon('users');
   const chatIco = btnChat.querySelector('.chat-ico');
@@ -902,6 +915,104 @@ btnView.addEventListener('click', () => {
   updatePinButtons();
 });
 
+btnShare.addEventListener('click', () => {
+  if (isSharingScreen) {
+    stopScreenShare();
+  } else {
+    startScreenShare();
+  }
+});
+
+async function startScreenShare(): Promise<void> {
+  if (!mesh || !localStream) return;
+  try {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    screenStream = s;
+    isSharingScreen = true;
+    // Replace video track on all peers with screen track (audio stays from mic)
+    mesh.setLocalStream(s);
+    // Show indicator on self cell
+    const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+    if (cell) {
+      let badge = cell.querySelector('.screen-share-badge') as HTMLElement | null;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'screen-share-badge';
+        badge.textContent = '🖥';
+        cell.querySelector('.video-overlay')?.appendChild(badge);
+      }
+    }
+    // Stop sharing when user clicks "Stop sharing" in browser
+    s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
+    setControlState();
+  } catch {
+    // User cancelled
+  }
+}
+
+function stopScreenShare(): void {
+  if (!isSharingScreen || !mesh || !localStream) return;
+  isSharingScreen = false;
+  if (screenStream) {
+    screenStream.getTracks().forEach((t) => t.stop());
+    screenStream = null;
+  }
+  // Restore camera stream
+  mesh.setLocalStream(localStream);
+  // Remove badge
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+  cell?.querySelector('.screen-share-badge')?.remove();
+  setControlState();
+  showNotif(t('stopShare'));
+}
+
+btnRecord.addEventListener('click', () => {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
+function startRecording(): void {
+  if (!localStream) return;
+  recordedChunks = [];
+  try {
+    const mimeType = 'video/webm;codecs=vp9,opus';
+    mediaRecorder = new MediaRecorder(localStream, { mimeType });
+  } catch {
+    try {
+      mediaRecorder = new MediaRecorder(localStream, { mimeType: 'video/webm;codecs=vp8,opus' });
+    } catch {
+      mediaRecorder = new MediaRecorder(localStream);
+    }
+  }
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data.size > 0) recordedChunks.push(e.data);
+  };
+  mediaRecorder.onstop = () => {
+    if (recordedChunks.length === 0) return;
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `voxtranslate-${session?.room || 'call'}-${Date.now()}.webm`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  mediaRecorder.start(1000);
+  isRecording = true;
+  showNotif(t('recording'));
+  setControlState();
+}
+
+function stopRecording(): void {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+  mediaRecorder.stop();
+  isRecording = false;
+  setControlState();
+}
+
 btnParticipants.addEventListener('click', () => toggleParticipants());
 
 btnChat.addEventListener('click', () => toggleChat());
@@ -933,6 +1044,9 @@ function leaveCall(): void {
   mesh?.destroy();
   if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (isSharingScreen) stopScreenShare();
+  if (isRecording) stopRecording();
+  if (screenStream) { screenStream.getTracks().forEach((t) => t.stop()); screenStream = null; }
   if (ws) {
     ws.close(1000, 'leave');
     ws = null;
