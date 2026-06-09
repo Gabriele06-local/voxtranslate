@@ -177,3 +177,108 @@ fn service_unavailable() -> Response {
     )
         .into_response()
 }
+
+/// The ToS/Privacy version a consent is recorded against.
+pub const CURRENT_TOS_VERSION: &str = "2026-06-10";
+
+#[derive(Deserialize)]
+pub struct ReportRequest {
+    pub room: String,
+    #[serde(default)]
+    pub reported_peer_id: Option<String>,
+    #[serde(default)]
+    pub reported_name: Option<String>,
+    pub reason: String,
+    #[serde(default)]
+    pub transcript_excerpt: Option<String>,
+}
+
+/// `POST /api/report` — file an abuse report against a peer.
+pub async fn report(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<ReportRequest>,
+) -> Response {
+    let Some(safety) = state.safety.as_ref() else {
+        return service_unavailable();
+    };
+    if body.reason.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "missing reason").into_response();
+    }
+    // Truncate the excerpt defensively.
+    let excerpt = body
+        .transcript_excerpt
+        .as_deref()
+        .map(|s| s.chars().take(500).collect::<String>());
+    match safety
+        .record_report(
+            user.user_id,
+            &body.room,
+            body.reported_peer_id.as_deref(),
+            body.reported_name.as_deref(),
+            &body.reason,
+            excerpt.as_deref(),
+        )
+        .await
+    {
+        Ok(()) => (StatusCode::CREATED, "reported").into_response(),
+        Err(e) => {
+            tracing::error!("report failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "report failed").into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ConsentRequest {
+    pub age_confirmed: bool,
+}
+
+/// `POST /api/user/consent` — record the user is 18+ and accepts the ToS/Privacy.
+pub async fn submit_consent(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<ConsentRequest>,
+) -> Response {
+    let Some(safety) = state.safety.as_ref() else {
+        return service_unavailable();
+    };
+    if !body.age_confirmed {
+        return (StatusCode::FORBIDDEN, "must be 18+ to use this service").into_response();
+    }
+    match safety.set_consent(user.user_id, CURRENT_TOS_VERSION).await {
+        Ok(()) => Json(serde_json::json!({ "consent_given": true })).into_response(),
+        Err(e) => {
+            tracing::error!("consent failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "consent failed").into_response()
+        }
+    }
+}
+
+/// `GET /api/user/data` — export everything we hold on the user (GDPR).
+pub async fn export_data(State(state): State<AppState>, user: AuthUser) -> Response {
+    let Some(safety) = state.safety.as_ref() else {
+        return service_unavailable();
+    };
+    match safety.export_user_data(user.user_id).await {
+        Ok(data) => Json(data).into_response(),
+        Err(e) => {
+            tracing::error!("export failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "export failed").into_response()
+        }
+    }
+}
+
+/// `DELETE /api/user` — erase the account and all linked data (GDPR).
+pub async fn delete_account(State(state): State<AppState>, user: AuthUser) -> Response {
+    let Some(safety) = state.safety.as_ref() else {
+        return service_unavailable();
+    };
+    match safety.delete_user(user.user_id).await {
+        Ok(()) => (StatusCode::OK, "deleted").into_response(),
+        Err(e) => {
+            tracing::error!("delete failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "delete failed").into_response()
+        }
+    }
+}

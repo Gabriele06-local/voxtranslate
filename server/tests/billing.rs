@@ -11,6 +11,7 @@ use std::sync::Arc;
 use voxtranslate_server::auth::FakeVerifier;
 use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::Config;
+use voxtranslate_server::safety::SafetyService;
 use voxtranslate_server::{app, db, AppState};
 
 /// Build a billing-mode `AppState` (FakeVerifier + test pool) and wire the pool.
@@ -22,6 +23,7 @@ async fn billing_state(secret: &str, free: f64) -> Option<(AppState, db::Pool)> 
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
     let mut state = AppState::new(config);
     state.billing = Some(BillingService::new(pool.clone(), min_join));
+    state.safety = Some(SafetyService::new(pool.clone()));
     state.pool = Some(pool.clone());
     state.verifier = Arc::new(FakeVerifier);
     Some((state, pool))
@@ -642,5 +644,228 @@ mod account_api {
         assert_eq!(rows[0]["room"], "room-a");
         assert_eq!(rows[0]["speaking_seconds"], 42);
         assert!((rows[0]["cost"].as_f64().unwrap() - 0.123456).abs() < 1e-6);
+    }
+}
+
+mod safety_http {
+    //! Reports, consent, GDPR export/delete over HTTP. DB-gated.
+
+    use super::*;
+    use std::net::SocketAddr;
+    use uuid::Uuid;
+    use voxtranslate_server::auth::{issue_jwt, upsert_google_user, GoogleIdentity};
+    use voxtranslate_server::db::Pool;
+
+    struct Server {
+        addr: SocketAddr,
+        pool: Pool,
+        secret: String,
+    }
+
+    async fn setup() -> Option<Server> {
+        let secret = "safety-secret".to_string();
+        let (state, pool) = billing_state(&secret, 2.0).await?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app(state)).await;
+        });
+        Some(Server { addr, pool, secret })
+    }
+
+    async fn login(srv: &Server) -> (Uuid, String) {
+        let identity = GoogleIdentity {
+            google_id: format!("g-{}", Uuid::new_v4()),
+            email: format!("{}@x.com", Uuid::new_v4()),
+            name: "Sam".into(),
+            avatar_url: None,
+        };
+        let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
+            .await
+            .unwrap();
+        let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
+        (user.id, jwt)
+    }
+
+    #[tokio::test]
+    async fn report_consent_export_then_delete() {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let (_uid, jwt) = login(&srv).await;
+        let http = reqwest::Client::new();
+        let base = format!("http://{}", srv.addr);
+
+        // Report a peer.
+        let r = http
+            .post(format!("{base}/api/report"))
+            .bearer_auth(&jwt)
+            .json(&serde_json::json!({ "room": "r1", "reported_peer_id": "p9", "reported_name": "Bob", "reason": "harassment" }))
+            .send().await.unwrap();
+        assert_eq!(r.status(), 201);
+
+        // Consent gate: /me shows not consented; false age -> 403; true -> 200.
+        let me: serde_json::Value = http
+            .get(format!("{base}/api/user/me"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(me["consent_given"], false);
+
+        let bad = http
+            .post(format!("{base}/api/user/consent"))
+            .bearer_auth(&jwt)
+            .json(&serde_json::json!({ "age_confirmed": false }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), 403);
+
+        let ok = http
+            .post(format!("{base}/api/user/consent"))
+            .bearer_auth(&jwt)
+            .json(&serde_json::json!({ "age_confirmed": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), 200);
+
+        let me2: serde_json::Value = http
+            .get(format!("{base}/api/user/me"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(me2["consent_given"], true);
+
+        // GDPR export includes the profile + the report we filed.
+        let data: serde_json::Value = http
+            .get(format!("{base}/api/user/data"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(data["profile"]["email"].is_string());
+        assert_eq!(data["reports_filed"][0]["reason"], "harassment");
+
+        // GDPR erasure: delete -> /me now 404 (user gone).
+        let del = http
+            .delete(format!("{base}/api/user"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del.status(), 200);
+        let gone = http
+            .get(format!("{base}/api/user/me"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(gone.status(), 404);
+
+        // Endpoints require auth.
+        assert_eq!(
+            http.post(format!("{base}/api/report"))
+                .json(&serde_json::json!({"room":"r","reason":"x"}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401
+        );
+    }
+}
+
+mod safety_ws {
+    //! WS gates: banned users rejected, public rooms require login. DB-gated.
+
+    use super::*;
+    use futures::StreamExt;
+    use std::net::SocketAddr;
+    use std::time::Duration;
+    use uuid::Uuid;
+    use voxtranslate_server::auth::{issue_jwt, upsert_google_user, GoogleIdentity};
+    use voxtranslate_server::db::Pool;
+    use voxtranslate_server::safety::SafetyService;
+
+    struct Server {
+        addr: SocketAddr,
+        pool: Pool,
+        secret: String,
+    }
+
+    async fn setup() -> Option<Server> {
+        let secret = "safetyws-secret".to_string();
+        let (state, pool) = billing_state(&secret, 2.0).await?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app(state)).await;
+        });
+        Some(Server { addr, pool, secret })
+    }
+
+    async fn first_frame(addr: SocketAddr, params: &str) -> serde_json::Value {
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws?{params}"))
+            .await
+            .expect("ws connect");
+        loop {
+            match tokio::time::timeout(Duration::from_secs(2), ws.next()).await {
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) => {
+                    return serde_json::from_str(t.as_str()).unwrap()
+                }
+                Ok(Some(Ok(_))) => continue,
+                _ => panic!("no frame"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn banned_rejected_and_public_requires_login() {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let addr = srv.addr;
+
+        // A banned user is rejected with code `banned`.
+        let identity = GoogleIdentity {
+            google_id: format!("g-{}", Uuid::new_v4()),
+            email: format!("{}@x.com", Uuid::new_v4()),
+            name: "Bad".into(),
+            avatar_url: None,
+        };
+        let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
+            .await
+            .unwrap();
+        SafetyService::new(srv.pool.clone())
+            .ban_user(user.id, "abuse", None)
+            .await
+            .unwrap();
+        let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
+        let f = first_frame(addr, &format!("room=b&lang=en&id=ban&token={jwt}")).await;
+        assert_eq!(f["type"], "error");
+        assert_eq!(f["code"], "banned");
+
+        // A guest can't join a PUBLIC room (accountability)...
+        let pub_guest = first_frame(addr, "room=pubr&lang=en&id=g1&public=true").await;
+        assert_eq!(pub_guest["type"], "error");
+        assert_eq!(pub_guest["code"], "login_required");
+
+        // ...but a guest CAN join a PRIVATE room.
+        let priv_guest = first_frame(addr, "room=privr&lang=en&id=g2&public=false").await;
+        assert_eq!(priv_guest["type"], "room_joined");
     }
 }

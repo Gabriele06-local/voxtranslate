@@ -224,6 +224,8 @@ pub struct UserProfile {
     pub name: String,
     pub avatar_url: Option<String>,
     pub balance: f64,
+    /// True once the user confirmed 18+ and accepted the ToS/Privacy.
+    pub consent_given: bool,
 }
 
 impl From<User> for UserProfile {
@@ -234,6 +236,7 @@ impl From<User> for UserProfile {
             name: u.name,
             avatar_url: u.avatar_url,
             balance: u.balance.to_f64().unwrap_or(0.0),
+            consent_given: u.age_confirmed && u.consent_tos_at.is_some(),
         }
     }
 }

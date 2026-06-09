@@ -19,6 +19,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 use crate::config::Config;
+use crate::moderation::{Moderator, Severity};
 use crate::protocol::{DeepgramResponse, ServerMessage};
 use crate::rooms::RoomManager;
 use crate::translator::Translator;
@@ -108,6 +109,7 @@ pub async fn process_transcripts(
     mut source: DgSource,
     rooms: Arc<RoomManager>,
     translator: Translator,
+    moderator: Arc<Moderator>,
     room: String,
     speaker_id: String,
     speaker_name: String,
@@ -152,6 +154,21 @@ pub async fn process_transcripts(
         }
 
         let transcript = transcript.to_string();
+
+        // Moderation: drop a flagged final (don't translate/broadcast it) and warn
+        // only the speaker, so abusive speech isn't shown/translated to the room.
+        if moderator.severity(&transcript) == Severity::Severe {
+            tracing::info!(%room, speaker = %speaker_id, "moderation: dropped flagged transcript");
+            rooms.relay_to_peer(
+                &room,
+                &speaker_id,
+                &ServerMessage::ModerationWarning {
+                    message: "Your message was blocked by moderation.".to_string(),
+                }
+                .to_json(),
+            );
+            continue;
+        }
 
         // Fan out a translation per distinct language in the room, then broadcast
         // the final subtitle with the full map so every peer picks its language.

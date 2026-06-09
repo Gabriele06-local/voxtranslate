@@ -144,6 +144,11 @@ pub enum ServerMessage {
     /// WebRTC call itself stays up; the user can buy credits and resume.
     BalanceExhausted,
 
+    /// A message (spoken or chat) was blocked by moderation; warn the sender.
+    ModerationWarning {
+        message: String,
+    },
+
     /// Non-fatal error surfaced to a peer. `code` lets the client branch (e.g.
     /// `insufficient_balance` → show the buy-credits prompt).
     Error {

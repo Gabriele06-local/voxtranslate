@@ -26,6 +26,12 @@ pub struct User {
     pub balance: Decimal,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    // Trust & safety / GDPR consent (added in migration 002).
+    pub age_confirmed: bool,
+    pub consent_tos_at: Option<DateTime<Utc>>,
+    pub tos_version: Option<String>,
+    pub banned_until: Option<DateTime<Utc>>,
+    pub banned_reason: Option<String>,
 }
 
 /// Open a connection pool to the given Postgres URL.

@@ -14,9 +14,11 @@ pub mod db;
 pub mod deepgram;
 pub mod groq;
 pub mod middleware;
+pub mod moderation;
 pub mod protocol;
 pub mod rate_limit;
 pub mod rooms;
+pub mod safety;
 pub mod stripe_handler;
 pub mod translator;
 pub mod usage;
@@ -43,9 +45,11 @@ use crate::billing::{usd, BillingService};
 use crate::config::Config;
 use crate::db::Pool;
 use crate::groq::Groq;
+use crate::moderation::{Moderator, Severity};
 use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
 use crate::rate_limit::RateLimiter;
 use crate::rooms::{Peer, RoomManager, Visibility};
+use crate::safety::SafetyService;
 use crate::translator::Translator;
 use crate::usage::{run_guest_meter, run_usage_meter, MeterConfig};
 
@@ -59,12 +63,16 @@ pub struct AppState {
     pub pool: Option<Pool>,
     /// Credit ledger service — `Some` only when auth/billing is configured.
     pub billing: Option<BillingService>,
+    /// Trust & safety + GDPR service — `Some` only when the database is configured.
+    pub safety: Option<SafetyService>,
     /// Verifies Google credentials (swappable for tests).
     pub verifier: Arc<dyn TokenVerifier>,
     /// Shared HTTP client (Google tokeninfo, Stripe).
     pub http: reqwest::Client,
     /// Throttles auth + checkout endpoints.
     pub rate_limiter: Arc<RateLimiter>,
+    /// Transcript/chat moderation (blocklist).
+    pub moderator: Arc<Moderator>,
 }
 
 impl AppState {
@@ -87,9 +95,11 @@ impl AppState {
             translator,
             pool: None,
             billing: None,
+            safety: None,
             verifier,
             http,
             rate_limiter: Arc::new(RateLimiter::new()),
+            moderator: Arc::new(Moderator::from_env()),
         }
     }
 
@@ -106,6 +116,7 @@ impl AppState {
                 .map_err(|e| format!("migrations failed: {e}"))?;
             let min_join = usd(billing.pricing.min_balance_to_join);
             state.billing = Some(BillingService::new(pool.clone(), min_join));
+            state.safety = Some(SafetyService::new(pool.clone()));
             state.pool = Some(pool);
             tracing::info!("auth/billing enabled — database connected, migrations applied");
         } else {
@@ -129,6 +140,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/billing/webhook", post(api::billing_webhook))
         .route("/api/billing/history", get(api::billing_history))
         .route("/api/usage/sessions", get(api::usage_sessions))
+        .route("/api/report", post(api::report))
+        .route("/api/user/consent", post(api::submit_consent))
+        .route("/api/user/data", get(api::export_data))
+        .route("/api/user", axum::routing::delete(api::delete_account))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -256,6 +271,16 @@ async fn authorize(
         code: Some("invalid_token".to_string()),
     })?;
 
+    // Banned users can't join (regardless of balance).
+    if let Some(safety) = state.safety.as_ref() {
+        if let Ok(Some(reason)) = safety.is_banned(uid).await {
+            return Err(ServerMessage::Error {
+                message: format!("You are banned: {reason}"),
+                code: Some("banned".to_string()),
+            });
+        }
+    }
+
     match svc.can_join(uid).await {
         Ok(true) => {
             let avatar_url = svc.get_avatar(uid).await.unwrap_or_default();
@@ -367,6 +392,26 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     };
     let billed_user = authed.as_ref().map(|a| a.user_id);
     let avatar_url = authed.and_then(|a| a.avatar_url);
+
+    // Accountability: when accounts are configured, public rooms require a
+    // signed-in user. Guests can still use private rooms via an invite link.
+    if matches!(visibility, Visibility::Public)
+        && billed_user.is_none()
+        && state.config.billing.is_some()
+    {
+        let _ = ws_tx
+            .send(Message::Text(
+                ServerMessage::Error {
+                    message: "sign in to use public rooms".to_string(),
+                    code: Some("login_required".to_string()),
+                }
+                .to_json()
+                .into(),
+            ))
+            .await;
+        let _ = ws_tx.close().await;
+        return;
+    }
 
     // Outgoing channel: server -> this peer's WS (text frames).
     let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
@@ -502,7 +547,18 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                             );
                         }
                         Ok(ClientMessage::Chat { text }) => {
-                            handle_chat(&state, &room, &id, &name, &lang, &avatar_url, text);
+                            // Moderate chat too: block + warn the sender on a hit.
+                            if state.moderator.severity(&text) == Severity::Severe {
+                                let _ = out_tx.send(
+                                    ServerMessage::ModerationWarning {
+                                        message: "Your message was blocked by moderation."
+                                            .to_string(),
+                                    }
+                                    .to_json(),
+                                );
+                            } else {
+                                handle_chat(&state, &room, &id, &name, &lang, &avatar_url, text);
+                            }
                         }
                         Ok(ClientMessage::MuteAudio { muted }) => {
                             state.rooms.broadcast_except(
@@ -614,6 +670,7 @@ async fn start_speaking_session(
                 dg_source,
                 state.rooms.clone(),
                 state.translator.clone(),
+                state.moderator.clone(),
                 room.to_string(),
                 id.to_string(),
                 name.to_string(),
