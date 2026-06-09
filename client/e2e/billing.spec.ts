@@ -53,7 +53,7 @@ test('billing mode shows the login gate; guest continues to home', async ({ brow
 
 test('a logged-in user sees their balance and can open buy-credits', async ({ browser }) => {
   const t = await openPage(browser);
-  const user = { id: 'u1', email: 'a@b.com', name: 'Alice', avatar_url: null, balance: 2.5 };
+  const user = { id: 'u1', email: 'a@b.com', name: 'Alice', avatar_url: null, balance: 2.5, consent_given: true };
   await mockApi(t.page, {
     user,
     packages: [{ id: 'starter', name: 'Starter', price_usd: 5, credits_usd: 5 }],
@@ -100,7 +100,7 @@ test('a billed call updates the balance pill and surfaces the exhausted modal', 
   // A Google avatar exercises the <img> path (account bar + self video cell).
   const user = {
     id: 'u1', email: 'a@b.com', name: 'Alice',
-    avatar_url: 'https://lh3.googleusercontent.com/a/test', balance: 1.5,
+    avatar_url: 'https://lh3.googleusercontent.com/a/test', balance: 1.5, consent_given: true,
   };
   await mockApi(t.page, { user, packages: [{ id: 'starter', name: 'Starter', price_usd: 5, credits_usd: 5 }] });
   await t.page.addInitScript((u) => {
@@ -150,7 +150,7 @@ test('a billed call updates the balance pill and surfaces the exhausted modal', 
 
 test('buying a package redirects to Stripe checkout', async ({ browser }) => {
   const t = await openPage(browser);
-  const user = { id: 'u1', email: 'a@b.com', name: 'Alice', avatar_url: null, balance: 1 };
+  const user = { id: 'u1', email: 'a@b.com', name: 'Alice', avatar_url: null, balance: 1, consent_given: true };
   await mockApi(t.page, { user, packages: [{ id: 'starter', name: 'Starter', price_usd: 5, credits_usd: 5 }] });
   // Checkout returns a (stubbed) hosted URL; serve it so the redirect lands.
   await t.page.route('**/api/billing/checkout', (r) =>
@@ -176,7 +176,7 @@ test('buying a package redirects to Stripe checkout', async ({ browser }) => {
 
 test('the server rejecting a join for low balance returns home with the buy prompt', async ({ browser }) => {
   const t = await openPage(browser);
-  const user = { id: 'u1', email: 'a@b.com', name: 'Alice', avatar_url: null, balance: 0.01 };
+  const user = { id: 'u1', email: 'a@b.com', name: 'Alice', avatar_url: null, balance: 0.01, consent_given: true };
   await mockApi(t.page, { user, packages: [{ id: 'starter', name: 'Starter', price_usd: 5, credits_usd: 5 }] });
   await t.page.addInitScript((u) => {
     localStorage.setItem('vox.token', 'fake.jwt');
