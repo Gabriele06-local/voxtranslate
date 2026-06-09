@@ -231,11 +231,12 @@ const LANGS = [
       text-transform: uppercase; background: transparent; border: none; color: var(--text); padding: 0; cursor: pointer;
     }
 
-    /* The stage fills the space between header and control bar and centers the
-       grid both axes. The grid's pixel size (and column/row tracks) is computed
-       in JS to the largest 16:9-tiled box that fits — videos keep proportions. */
-    .video-stage { flex: 1; min-height: 0; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .video-grid { display: grid; gap: 6px; max-width: 100%; max-height: 100%; }
+    /* The stage fills the space between header and control bar; the grid fills
+       the stage. Videos use object-fit: cover so they fill each cell (proportions
+       kept, minimal crop) — no black bars, centered, no scroll. JS picks the
+       column/row tracks by peer count + orientation. */
+    .video-stage { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+    .video-grid { display: grid; gap: 6px; width: 100%; height: 100%; }
     .video-grid[data-peers="3"] .video-cell:nth-child(3) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
 
     .video-cell { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; }

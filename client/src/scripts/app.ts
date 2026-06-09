@@ -435,9 +435,10 @@ function updateGridCount(): void {
   layoutVideos();
 }
 
-// Size the video grid to the largest 16:9-tiled box that fits the stage, so
-// tiles keep their proportions and the whole layout stays centered with no
-// vertical scroll. Columns/rows adapt to count and orientation (portrait stacks).
+// The grid fills the whole stage (videos use object-fit: cover, so they keep
+// their proportions and fill the space with minimal cropping — no black bars,
+// no scroll). Columns/rows adapt to count + orientation so cells stay as close
+// to the camera aspect as possible (portrait stacks two peers vertically).
 function layoutVideos(): void {
   const stage = document.querySelector('.video-stage') as HTMLElement | null;
   if (!stage) return;
@@ -463,16 +464,6 @@ function layoutVideos(): void {
     cols = 2;
     rows = 2;
   }
-
-  const gridAR = (cols * 16) / (rows * 9);
-  let w = sw;
-  let h = sw / gridAR;
-  if (h > sh) {
-    h = sh;
-    w = sh * gridAR;
-  }
-  videoGrid.style.width = `${Math.floor(w)}px`;
-  videoGrid.style.height = `${Math.floor(h)}px`;
   videoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 }
