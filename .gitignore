@@ -31,3 +31,4 @@
 /client/playwright-report
 /client/.cache
 /server/tarpaulin-report.html
+/client/coverage-unit

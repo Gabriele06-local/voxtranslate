@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Core checks — no API keys needed (network-backed tests auto-skip).
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - name: Server build + tests
+        working-directory: server
+        run: |
+          cargo build --locked
+          cargo test --locked
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Client install
+        working-directory: client
+        run: npm ci
+      - name: Client typecheck
+        working-directory: client
+        run: npm run check
+      - name: Client unit tests (vitest, ≥85%)
+        working-directory: client
+        run: npm run test:unit
+      - name: Client production build
+        working-directory: client
+        env:
+          PUBLIC_WS_HOST: example.invalid
+        run: npm run build
+
+  # Detect whether API-key secrets are configured (boolean, never the value).
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      has_keys: ${{ steps.c.outputs.has_keys }}
+    steps:
+      - id: c
+        run: |
+          echo "has_keys=${{ secrets.GROQ_API_KEY != '' && secrets.DEEPGRAM_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  # Full server coverage + browser e2e — only when secrets are present.
+  e2e:
+    needs: check-secrets
+    if: ${{ needs.check-secrets.outputs.has_keys == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Server coverage (≥85% lines)
+        working-directory: server
+        run: cargo llvm-cov test --locked --fail-under-lines 85
+
+      - name: Run backend
+        working-directory: server
+        run: |
+          cargo run --release --locked &
+          for i in $(seq 1 60); do curl -sf http://localhost:3001/health && break; sleep 2; done
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Client install
+        working-directory: client
+        run: npm ci
+      - name: Playwright browser
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E (Playwright, coverage report)
+        working-directory: client
+        run: npm run test:e2e
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            client/coverage
+            client/coverage-unit
+          if-no-files-found: ignore

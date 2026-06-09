@@ -1,0 +1,17 @@
+import { defineConfig } from 'vitest/config';
+
+// Unit tests for the browser-glue modules whose error/edge branches are hard to
+// reach via e2e (WebRTC mesh, audio capture). Browser APIs are mocked.
+export default defineConfig({
+  test: {
+    include: ['src/scripts/**/*.test.ts'],
+    environment: 'node',
+    coverage: {
+      provider: 'v8',
+      include: ['src/scripts/webrtc.ts', 'src/scripts/audio-capture.ts'],
+      reporter: ['text', 'json-summary'],
+      reportsDirectory: './coverage-unit',
+      thresholds: { lines: 85, functions: 85 },
+    },
+  },
+});
