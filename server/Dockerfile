@@ -21,6 +21,9 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs \
     && rm -rf src
 
 COPY src ./src
+# `sqlx::migrate!("./migrations")` embeds the migration files at COMPILE TIME,
+# so the directory must exist during the build (not just at runtime).
+COPY migrations ./migrations
 # Touch main so cargo rebuilds with the real sources.
 RUN touch src/main.rs && cargo build --release
 
