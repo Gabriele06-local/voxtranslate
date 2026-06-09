@@ -1038,4 +1038,5 @@ $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
 $('logout-btn').innerHTML = icon('leave', 16);
+$('buy-close').innerHTML = icon('close', 16);
 void boot();
