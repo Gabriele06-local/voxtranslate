@@ -115,6 +115,13 @@ const LANGS = [
           <div id="session-downloads" class="session-downloads">
             <button id="session-dl-pdf" class="btn-ghost" data-i18n="downloadPdf"></button>
             <button id="session-dl-json" class="btn-ghost" data-i18n="downloadJson"></button>
+            <button id="session-dl-srt" class="btn-ghost" data-i18n="downloadSrt"></button>
+            <button id="session-dl-vtt" class="btn-ghost" data-i18n="downloadVtt"></button>
+            <select id="session-sub-mode" data-i18n-label="subtitleMode" data-i18n-title="subtitleMode">
+              <option value="translated" data-i18n="subTranslated"></option>
+              <option value="original" data-i18n="subOriginal"></option>
+              <option value="both" data-i18n="subBoth"></option>
+            </select>
           </div>
         </div>
 
@@ -430,8 +437,12 @@ const LANGS = [
     .session-header .card-title { font-size: 1rem; flex: 1; }
     .session-meta { margin: 0; color: var(--muted); font-size: 0.88rem; }
     .session-participants { margin: 0; color: var(--muted); font-size: 0.82rem; min-height: 1em; }
-    .session-downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .session-downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
     .session-downloads .btn-ghost { min-height: 44px; }
+    .session-downloads select {
+      min-height: 44px; padding: 0 10px; border-radius: 8px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    }
     .session-transcript {
       display: flex; flex-direction: column; gap: 4px; margin-top: 10px;
       max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch;

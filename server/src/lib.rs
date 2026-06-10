@@ -23,6 +23,7 @@ pub mod rate_limit;
 pub mod rooms;
 pub mod safety;
 pub mod stripe_handler;
+pub mod subtitles;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
@@ -164,6 +165,14 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/sessions/{id}/transcript.pdf",
             get(api::transcript_pdf),
+        )
+        .route(
+            "/api/sessions/{id}/transcript.srt",
+            get(api::transcript_srt),
+        )
+        .route(
+            "/api/sessions/{id}/transcript.vtt",
+            get(api::transcript_vtt),
         )
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))

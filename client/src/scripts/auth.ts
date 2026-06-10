@@ -211,15 +211,20 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** `?lang=` of the SRT/VTT endpoints — which text the subtitles carry. */
+export type SubtitleMode = 'original' | 'translated' | 'both';
+
 /**
- * Download a session transcript as JSON or PDF (authenticated). The PDF is
- * localized to the browser timezone and `lang`. Returns false on failure
+ * Download a session transcript as JSON, PDF or SRT/VTT subtitles
+ * (authenticated). The PDF is localized to the browser timezone and `lang`;
+ * subtitles use `lang` as the translation target. Returns false on failure
  * (403/404/429/5xx) so callers can toast.
  */
 export async function downloadTranscript(
   sessionId: string,
-  format: 'json' | 'pdf',
+  format: 'json' | 'pdf' | 'srt' | 'vtt',
   lang = 'en',
+  subtitleMode: SubtitleMode = 'translated',
 ): Promise<boolean> {
   let url = `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/transcript.${format}`;
   if (format === 'pdf') {
@@ -230,6 +235,8 @@ export async function downloadTranscript(
       /* default to UTC */
     }
     url += `?tz=${encodeURIComponent(tz)}&lang=${encodeURIComponent(lang)}`;
+  } else if (format === 'srt' || format === 'vtt') {
+    url += `?lang=${encodeURIComponent(subtitleMode)}&target=${encodeURIComponent(lang)}`;
   }
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) return false;

@@ -304,6 +304,19 @@ describe('transcripts', () => {
     expect(anchor.download).toBe('voxtranslate-transcript.json');
   });
 
+  it('downloadTranscript(srt/vtt) sends the mode and target params', async () => {
+    const auth = await fresh();
+    stubDownloadDom();
+    const fetchMock = vi.fn().mockResolvedValue(blobResponse(null));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await auth.downloadTranscript('s4', 'srt', 'it', 'both')).toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/sessions/s4/transcript.srt?lang=both&target=it');
+    // Default subtitle mode is "translated".
+    expect(await auth.downloadTranscript('s5', 'vtt', 'fr')).toBe(true);
+    expect(fetchMock.mock.calls[1][0]).toContain('/api/sessions/s5/transcript.vtt?lang=translated&target=fr');
+  });
+
   it('downloadTranscript returns false on failure without downloading', async () => {
     const auth = await fresh();
     const anchor = stubDownloadDom();

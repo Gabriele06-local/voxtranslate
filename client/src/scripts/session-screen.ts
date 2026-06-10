@@ -55,7 +55,7 @@ function renderHeader(ref: SessionRef): void {
   $('session-duration').textContent = formatDuration(ms);
   $('session-events').textContent = String(ref.event_count);
   $('session-participants').textContent = '';
-  for (const id of ['session-dl-pdf', 'session-dl-json']) {
+  for (const id of ['session-dl-pdf', 'session-dl-json', 'session-dl-srt', 'session-dl-vtt']) {
     const btn = $<HTMLButtonElement>(id);
     btn.disabled = ref.event_count === 0;
     btn.title = ref.event_count === 0 ? t('noTranscriptEvents') : '';
@@ -134,14 +134,16 @@ function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {
 
 $('session-back').addEventListener('click', closeSessionScreen);
 
-for (const format of ['pdf', 'json'] as const) {
+for (const format of ['pdf', 'json', 'srt', 'vtt'] as const) {
   const btn = $<HTMLButtonElement>(`session-dl-${format}`);
   btn.addEventListener('click', async () => {
     if (!current || btn.disabled) return;
     const prev = btn.textContent;
     btn.disabled = true;
     btn.textContent = t('processing');
-    const ok = await auth.downloadTranscript(current.id, format, getUiLang());
+    // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
+    const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
+    const ok = await auth.downloadTranscript(current.id, format, getUiLang(), mode);
     btn.textContent = prev;
     btn.disabled = (current?.event_count ?? 0) === 0;
     if (!ok) {

@@ -65,6 +65,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: 'Close', diceTip: 'Random code',
     sessionDetails: 'Session details', downloads: 'Downloads', aiTools: 'AI tools',
     transcriptLabel: 'Transcript', openBtn: 'Open', loadFailed: 'Could not load — please try again',
+    downloadSrt: 'Download SRT', downloadVtt: 'Download VTT', subtitleMode: 'Subtitle language',
+    subTranslated: 'Translated', subOriginal: 'Original', subBoth: 'Original + translation',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -115,6 +117,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: 'Chiudi', diceTip: 'Codice casuale',
     sessionDetails: 'Dettagli sessione', downloads: 'Download', aiTools: 'Strumenti AI',
     transcriptLabel: 'Trascrizione', openBtn: 'Apri', loadFailed: 'Caricamento non riuscito — riprova',
+    downloadSrt: 'Scarica SRT', downloadVtt: 'Scarica VTT', subtitleMode: 'Lingua sottotitoli',
+    subTranslated: 'Tradotto', subOriginal: 'Originale', subBoth: 'Originale + traduzione',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -165,6 +169,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: 'Cerrar', diceTip: 'Código aleatorio',
     sessionDetails: 'Detalles de la sesión', downloads: 'Descargas', aiTools: 'Herramientas de IA',
     transcriptLabel: 'Transcripción', openBtn: 'Abrir', loadFailed: 'No se pudo cargar — inténtalo de nuevo',
+    downloadSrt: 'Descargar SRT', downloadVtt: 'Descargar VTT', subtitleMode: 'Idioma de subtítulos',
+    subTranslated: 'Traducido', subOriginal: 'Original', subBoth: 'Original + traducción',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -215,6 +221,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: 'Fermer', diceTip: 'Code aléatoire',
     sessionDetails: 'Détails de la session', downloads: 'Téléchargements', aiTools: 'Outils IA',
     transcriptLabel: 'Transcription', openBtn: 'Ouvrir', loadFailed: 'Chargement impossible — réessayez',
+    downloadSrt: 'Télécharger le SRT', downloadVtt: 'Télécharger le VTT', subtitleMode: 'Langue des sous-titres',
+    subTranslated: 'Traduit', subOriginal: 'Original', subBoth: 'Original + traduction',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -265,6 +273,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: 'Schließen', diceTip: 'Zufälliger Code',
     sessionDetails: 'Sitzungsdetails', downloads: 'Downloads', aiTools: 'KI-Tools',
     transcriptLabel: 'Transkript', openBtn: 'Öffnen', loadFailed: 'Laden fehlgeschlagen — bitte erneut versuchen',
+    downloadSrt: 'SRT herunterladen', downloadVtt: 'VTT herunterladen', subtitleMode: 'Untertitelsprache',
+    subTranslated: 'Übersetzt', subOriginal: 'Original', subBoth: 'Original + Übersetzung',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -315,6 +325,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: 'Fechar', diceTip: 'Código aleatório',
     sessionDetails: 'Detalhes da sessão', downloads: 'Downloads', aiTools: 'Ferramentas de IA',
     transcriptLabel: 'Transcrição', openBtn: 'Abrir', loadFailed: 'Falha ao carregar — tente novamente',
+    downloadSrt: 'Baixar SRT', downloadVtt: 'Baixar VTT', subtitleMode: 'Idioma das legendas',
+    subTranslated: 'Traduzido', subOriginal: 'Original', subBoth: 'Original + tradução',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -365,6 +377,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: '閉じる', diceTip: 'ランダムコード',
     sessionDetails: 'セッションの詳細', downloads: 'ダウンロード', aiTools: 'AIツール',
     transcriptLabel: '文字起こし', openBtn: '開く', loadFailed: '読み込みに失敗しました — もう一度お試しください',
+    downloadSrt: 'SRTをダウンロード', downloadVtt: 'VTTをダウンロード', subtitleMode: '字幕の言語',
+    subTranslated: '翻訳', subOriginal: '原文', subBoth: '原文+翻訳',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -415,6 +429,8 @@ export const I18N: Record<string, Dict> = {
     closeTip: '关闭', diceTip: '随机代码',
     sessionDetails: '会话详情', downloads: '下载', aiTools: 'AI 工具',
     transcriptLabel: '转录', openBtn: '打开', loadFailed: '加载失败 — 请重试',
+    downloadSrt: '下载 SRT', downloadVtt: '下载 VTT', subtitleMode: '字幕语言',
+    subTranslated: '译文', subOriginal: '原文', subBoth: '原文+译文',
   },
 };
 

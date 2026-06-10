@@ -6,6 +6,7 @@
 //! run against the Docker Postgres:
 //! `DATABASE_URL=postgresql://postgres:test@127.0.0.1:55432/vox_test cargo test --test transcripts`.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +18,7 @@ use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::Config;
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::safety::SafetyService;
-use voxtranslate_server::transcripts::TranscriptService;
+use voxtranslate_server::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use voxtranslate_server::{app, AppState};
 
 struct Server {
@@ -300,6 +301,132 @@ async fn chat_is_captured_listed_and_downloadable_with_auth_gates() {
         .unwrap()
         .iter()
         .all(|r| r["id"] != session_id));
+}
+
+/// SRT/VTT subtitle exports (spec 0012): seeded speech events come back as
+/// timed cues in the requested language mode, chat is skipped, and the same
+/// auth gates as the JSON export apply.
+#[tokio::test]
+async fn subtitles_download_as_srt_and_vtt() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (uid, jwt) = login(&srv, "Tess").await;
+    let room = format!("st-{}", Uuid::new_v4().simple());
+    let session_id = Uuid::new_v4();
+
+    // Seed a session directly through the service (shares the server's pool).
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, &room).await.unwrap();
+    svc.participant_joined(session_id, "tess-peer", Some(uid), "Tess", "it")
+        .await
+        .unwrap();
+    svc.record(TranscriptEvent {
+        session_id,
+        kind: EventKind::Speech,
+        speaker_peer_id: "tess-peer".into(),
+        speaker_user_id: Some(uid),
+        speaker_name: "Tess".into(),
+        original_text: "Hello world.".into(),
+        original_lang: "en".into(),
+        translations: HashMap::from([("it".to_string(), "Ciao mondo.".to_string())]),
+        ts: chrono::Utc::now(),
+    });
+    svc.record(TranscriptEvent {
+        session_id,
+        kind: EventKind::Chat,
+        speaker_peer_id: "tess-peer".into(),
+        speaker_user_id: Some(uid),
+        speaker_name: "Tess".into(),
+        original_text: "off the record".into(),
+        original_lang: "en".into(),
+        translations: HashMap::new(),
+        ts: chrono::Utc::now() + chrono::Duration::seconds(5),
+    });
+    svc.flush().await;
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+
+    // Default mode = translated, default target = requester's lang ("it").
+    let srt = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.srt"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(srt.status(), 200);
+    assert_eq!(
+        srt.headers().get("content-type").unwrap(),
+        "application/x-subrip"
+    );
+    let cd = srt
+        .headers()
+        .get("content-disposition")
+        .and_then(|v| v.to_str().ok())
+        .unwrap()
+        .to_string();
+    assert!(cd.ends_with(".srt\""), "{cd}");
+    let body = srt.text().await.unwrap();
+    assert!(body.starts_with("1\n"), "{body}");
+    assert!(body.contains("Tess: Ciao mondo."), "{body}");
+    assert!(body.contains(" --> "), "{body}");
+    assert!(!body.contains("off the record"), "chat must be skipped: {body}");
+
+    // VTT, original mode: voice tag + original text.
+    let vtt = http
+        .get(format!(
+            "{base}/api/sessions/{session_id}/transcript.vtt?lang=original"
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(vtt.status(), 200);
+    assert_eq!(vtt.headers().get("content-type").unwrap(), "text/vtt");
+    let body = vtt.text().await.unwrap();
+    assert!(body.starts_with("WEBVTT\n\n"), "{body}");
+    assert!(body.contains("<v Tess>Hello world."), "{body}");
+
+    // Both mode pairs original + translation.
+    let both = http
+        .get(format!(
+            "{base}/api/sessions/{session_id}/transcript.srt?lang=both&target=it"
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(both.contains("Tess: Hello world.\nCiao mondo."), "{both}");
+
+    // Gates: bad mode 400, stranger 403, no token 401.
+    let bad = http
+        .get(format!(
+            "{base}/api/sessions/{session_id}/transcript.srt?lang=klingon"
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400);
+    let (_eve, eve_jwt) = login(&srv, "Eve").await;
+    let forbidden = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.vtt"))
+        .bearer_auth(&eve_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+    let unauth = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.srt"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauth.status(), 401);
 }
 
 #[tokio::test]

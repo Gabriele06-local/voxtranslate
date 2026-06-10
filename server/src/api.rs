@@ -404,6 +404,131 @@ pub async fn transcript_pdf(
         .into_response()
 }
 
+#[derive(Deserialize, Default)]
+pub struct SubtitleQuery {
+    /// `original` | `translated` (default) | `both`.
+    pub lang: Option<String>,
+    /// Translation language for `translated`/`both`; default = the requester's
+    /// own participant language for that session, fallback `en`.
+    pub target: Option<String>,
+}
+
+/// `GET /api/sessions/{id}/transcript.srt?lang=both&target=it` — SubRip
+/// subtitles. Same auth gates as the JSON export.
+pub async fn transcript_srt(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Query(q): Query<SubtitleQuery>,
+) -> Response {
+    subtitles_response(state, user, session_id, q, SubtitleFormat::Srt).await
+}
+
+/// `GET /api/sessions/{id}/transcript.vtt?lang=both&target=it` — WebVTT
+/// subtitles with `<v Speaker>` voice tags. Same auth gates as the JSON export.
+pub async fn transcript_vtt(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Query(q): Query<SubtitleQuery>,
+) -> Response {
+    subtitles_response(state, user, session_id, q, SubtitleFormat::Vtt).await
+}
+
+enum SubtitleFormat {
+    Srt,
+    Vtt,
+}
+
+async fn subtitles_response(
+    state: AppState,
+    user: AuthUser,
+    session_id: Uuid,
+    q: SubtitleQuery,
+    format: SubtitleFormat,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    let mode = match q.lang.as_deref() {
+        None => crate::subtitles::LangMode::Translated,
+        Some(s) => match crate::subtitles::LangMode::parse(s) {
+            Some(m) => m,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "lang must be original, translated or both",
+                )
+                    .into_response()
+            }
+        },
+    };
+
+    // Barrier kills the leave-then-download race and enables live mid-call export.
+    svc.flush().await;
+
+    match svc.access(session_id, user.user_id).await {
+        Ok(SessionAccess::Ok) => {}
+        Ok(SessionAccess::NotFound) => {
+            return (StatusCode::NOT_FOUND, "no such session").into_response()
+        }
+        Ok(SessionAccess::Forbidden) => {
+            return (StatusCode::FORBIDDEN, "not a participant").into_response()
+        }
+        Err(e) => {
+            tracing::error!("transcript access check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        // Purged between the access check and here (guest-only finalize race).
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+
+    let target = match q.target {
+        Some(t) => t,
+        None => svc
+            .participant_lang(session_id, user.user_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "en".to_string()),
+    };
+
+    let cues = crate::subtitles::compute_cues(
+        &export.events,
+        export.session.started_at,
+        mode,
+        &target,
+    );
+    let (body, content_type, ext) = match format {
+        SubtitleFormat::Srt => (
+            crate::subtitles::build_srt(&cues),
+            "application/x-subrip",
+            "srt",
+        ),
+        SubtitleFormat::Vtt => (crate::subtitles::build_vtt(&cues), "text/vtt", "vtt"),
+    };
+    let filename = transcript_filename(&export.session.room_name, session_id, ext);
+    (
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 /// `voxtranslate-{room_slug}-{id8}.{ext}` — the room slug is filtered to
 /// `[A-Za-z0-9_-]` so user-chosen room names can't inject header syntax.
 fn transcript_filename(room: &str, session_id: Uuid, ext: &str) -> String {
