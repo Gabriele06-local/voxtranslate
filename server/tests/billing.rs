@@ -929,6 +929,16 @@ mod admin_api {
             .unwrap();
         assert_eq!(no_secret.status(), 403);
 
+        // The secret is checked BEFORE the body is parsed: a malformed body with
+        // no secret is still 403 (not a 422 body-validation error).
+        let malformed_no_secret = http
+            .post(format!("{base}/api/admin/ban"))
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(malformed_no_secret.status(), 403);
+
         let wrong = http
             .post(format!("{base}/api/admin/ban"))
             .header("x-admin-secret", "nope")

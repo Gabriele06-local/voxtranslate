@@ -4,8 +4,9 @@
 //! money + ban logic behind the server while Directus stays a thin admin UI over
 //! the data. Every action writes an `admin_audit` row.
 
-use axum::extract::State;
-use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
+use axum::extract::{FromRequestParts, State};
+use axum::http::request::Parts;
+use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -15,24 +16,43 @@ use crate::billing::usd;
 use crate::db::Pool;
 use crate::AppState;
 
-/// Whether the request carries the configured admin secret. Accepts either
-/// `Authorization: Bearer <secret>` or `X-Admin-Secret: <secret>`. Returns false
-/// when no secret is configured (admin endpoints are then effectively disabled).
-fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
-    let Some(secret) = state
-        .config
-        .billing
-        .as_ref()
-        .and_then(|b| b.admin_api_secret.as_deref())
-    else {
-        return false;
-    };
-    let bearer = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
-    let xhdr = headers.get("x-admin-secret").and_then(|v| v.to_str().ok());
-    constant_eq(bearer, secret) || constant_eq(xhdr, secret)
+/// Extractor that authenticates a backoffice request by the shared
+/// `ADMIN_API_SECRET`, accepting `Authorization: Bearer <secret>` or
+/// `X-Admin-Secret: <secret>`. Being a `FromRequestParts` extractor it runs
+/// BEFORE the JSON body is parsed, so an unauthorized caller always gets `403`
+/// (never a `422` body-validation error) and the body is never deserialized.
+pub struct AdminAuth;
+
+impl FromRequestParts<AppState> for AdminAuth {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let Some(secret) = state
+            .config
+            .billing
+            .as_ref()
+            .and_then(|b| b.admin_api_secret.as_deref())
+        else {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, "admin not configured").into_response());
+        };
+        let bearer = parts
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+        let xhdr = parts
+            .headers
+            .get("x-admin-secret")
+            .and_then(|v| v.to_str().ok());
+        if constant_eq(bearer, secret) || constant_eq(xhdr, secret) {
+            Ok(AdminAuth)
+        } else {
+            Err((StatusCode::FORBIDDEN, "invalid admin secret").into_response())
+        }
+    }
 }
 
 /// Length-checked, branch-light comparison so a wrong secret doesn't leak its
@@ -75,10 +95,6 @@ fn actor(a: &Option<String>) -> &str {
     a.as_deref().filter(|s| !s.is_empty()).unwrap_or("admin")
 }
 
-fn forbidden() -> Response {
-    (StatusCode::FORBIDDEN, "invalid admin secret").into_response()
-}
-
 fn unavailable() -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, "admin not configured").into_response()
 }
@@ -100,12 +116,9 @@ pub struct BanRequest {
 /// `POST /api/admin/ban` — ban a user for `days` (omit for permanent).
 pub async fn ban(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: AdminAuth,
     Json(body): Json<BanRequest>,
 ) -> Response {
-    if !authorized(&state, &headers) {
-        return forbidden();
-    }
     let (Some(safety), Some(pool)) = (state.safety.as_ref(), state.pool.as_ref()) else {
         return unavailable();
     };
@@ -138,12 +151,9 @@ pub struct UnbanRequest {
 /// `POST /api/admin/unban` — lift a user's ban.
 pub async fn unban(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: AdminAuth,
     Json(body): Json<UnbanRequest>,
 ) -> Response {
-    if !authorized(&state, &headers) {
-        return forbidden();
-    }
     let (Some(safety), Some(pool)) = (state.safety.as_ref(), state.pool.as_ref()) else {
         return unavailable();
     };
@@ -179,12 +189,9 @@ pub struct CreditRequest {
 /// `POST /api/admin/credit` — manually adjust a user's balance (grant/refund).
 pub async fn credit(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: AdminAuth,
     Json(body): Json<CreditRequest>,
 ) -> Response {
-    if !authorized(&state, &headers) {
-        return forbidden();
-    }
     let (Some(billing), Some(pool)) = (state.billing.as_ref(), state.pool.as_ref()) else {
         return unavailable();
     };
@@ -231,12 +238,9 @@ pub struct ResolveRequest {
 /// `POST /api/admin/report/resolve` — close a report (resolved or dismissed).
 pub async fn resolve_report(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: AdminAuth,
     Json(body): Json<ResolveRequest>,
 ) -> Response {
-    if !authorized(&state, &headers) {
-        return forbidden();
-    }
     let Some(pool) = state.pool.as_ref() else {
         return unavailable();
     };
@@ -287,12 +291,9 @@ pub struct DeleteRequest {
 /// `POST /api/admin/user/delete` — erase a user and all linked data (GDPR).
 pub async fn delete_user(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _admin: AdminAuth,
     Json(body): Json<DeleteRequest>,
 ) -> Response {
-    if !authorized(&state, &headers) {
-        return forbidden();
-    }
     let (Some(safety), Some(pool)) = (state.safety.as_ref(), state.pool.as_ref()) else {
         return unavailable();
     };
