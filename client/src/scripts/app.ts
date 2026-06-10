@@ -863,6 +863,7 @@ function setAudioMuted(id: string, muted: boolean): void {
 function setHandIndicator(id: string, raised: boolean): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
   if (!cell) return;
+  cell.classList.toggle('hand-raised', raised); // yellow border via CSS
   let indicator = cell.querySelector('.hand-indicator') as HTMLElement | null;
   if (raised) {
     if (!indicator) {
@@ -1045,6 +1046,9 @@ btnTts.addEventListener('click', () => {
 btnHand.addEventListener('click', () => {
   handRaised = !handRaised;
   ws?.send(JSON.stringify({ type: 'hand_raise', raised: handRaised }));
+  // The server relays hand_raised to peers only — update our own tile + list.
+  setHandIndicator(myId, handRaised);
+  updateParticipantsList();
   setControlState();
 });
 
