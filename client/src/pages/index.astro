@@ -132,6 +132,7 @@ const LANGS = [
 
     <!-- ===================== CALL ===================== -->
     <section id="call" class="screen hidden">
+      <div id="notif-banner" class="notif-banner hidden"></div>
       <div class="call-main">
         <header class="call-header">
           <button id="call-room" class="room-badge mono" title="Copy"></button>
@@ -147,10 +148,25 @@ const LANGS = [
           <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
           <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
           <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
+          <button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button>
+          <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
+          <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
+          <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
+          <button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button>
+          <button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button>
+          <button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button>
           <button id="btn-chat" class="control-btn" data-i18n-title="chatTip"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
         </div>
       </div>
+
+      <aside id="participants-panel" class="side-panel closed" data-panel="participants">
+        <div class="side-panel-header">
+          <span class="card-title" data-i18n="participants"></span>
+          <button id="part-close" class="btn-ghost icon-btn" aria-label="Close"></button>
+        </div>
+        <div id="participants-list" class="participants-list"></div>
+      </aside>
 
       <aside id="chat-panel" class="chat-panel closed">
         <div class="chat-header">
@@ -159,6 +175,12 @@ const LANGS = [
         </div>
         <div id="chat-messages" class="chat-messages"></div>
         <div class="chat-input-row">
+          <div class="emoji-picker-wrap">
+            <button id="emoji-toggle" class="btn-ghost icon-btn emoji-btn" title="Emoji" aria-label="Emoji">😀</button>
+            <div id="emoji-panel" class="emoji-panel hidden">
+              <div class="emoji-grid" id="emoji-grid"></div>
+            </div>
+          </div>
           <input id="chat-input" type="text" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" />
           <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
         </div>
@@ -386,6 +408,28 @@ const LANGS = [
     .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; }
     .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
     .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
+    .video-grid :global(.pin-btn) { margin-left: auto; cursor: pointer; color: var(--muted); display: inline-flex; transition: color 0.15s; }
+    .video-grid :global(.pin-btn:hover) { color: var(--accent); }
+    .video-grid :global(.screen-share-badge) { margin-left: 4px; font-size: 0.9rem; }
+    .video-grid :global(.hand-indicator) {
+      position: absolute; top: 8px; right: 8px; font-size: 1.4rem;
+      animation: hand-wave 1s ease-in-out infinite alternate;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    }
+    @keyframes hand-wave {
+      0% { transform: rotate(-8deg); }
+      100% { transform: rotate(8deg); }
+    }
+    .video-grid :global(.emoji-float) {
+      position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
+      font-size: 2.2rem; pointer-events: none;
+      animation: emoji-pop 1.5s ease-out forwards;
+    }
+    @keyframes emoji-pop {
+      0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+      70% { opacity: 1; transform: translateX(-50%) translateY(-40px) scale(1.3); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-70px) scale(0.8); }
+    }
 
     .video-grid :global(.subtitle-area) { position: absolute; bottom: 8px; left: 0; right: 0; padding: 0 10px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
     .video-grid :global(.subtitle) {
@@ -542,6 +586,83 @@ const LANGS = [
       object-fit: cover; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
     }
     .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 5px; }
+    /* ---------- Emoji picker ---------- */
+    .emoji-picker-wrap { position: relative; }
+    .emoji-btn { font-size: 1.1rem !important; padding: 0 10px !important; }
+    .emoji-panel {
+      position: absolute; bottom: 52px; left: 0; width: 220px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); z-index: 30;
+    }
+    .emoji-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+    }
+    .emoji-grid button {
+      background: none; border: none; font-size: 1.3rem; padding: 4px;
+      border-radius: 6px; cursor: pointer; transition: background 0.1s;
+      display: grid; place-items: center;
+    }
+    .emoji-grid button:hover { background: var(--border); }
+
+    /* ---------- Pinned / Focus layout ---------- */
+    .video-grid[data-mode="focus"] :global(.video-cell) { display: none; }
+    .video-grid[data-mode="focus"] :global(.video-cell.main-cell) {
+      display: block; position: absolute; inset: 0; z-index: 1;
+    }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) {
+      display: block; position: absolute; z-index: 2;
+      width: 160px; height: 90px; bottom: 12px; right: 12px;
+      border-radius: 8px; border: 2px solid var(--surface);
+      cursor: pointer; transition: transform 0.15s;
+    }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb:hover) { transform: scale(1.08); }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .video-overlay) { font-size: 0.65rem; padding: 2px 6px; }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .subtitle-area) { display: none; }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .hand-indicator) { font-size: 1rem; }
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .emoji-float) { display: none; }
+    .video-grid[data-mode="focus"] :global(.video-cell.main-cell) { outline: none; }
+    .video-grid :global(.video-cell.active-speaker) { outline: 2px solid var(--success); outline-offset: -2px; }
+
+    /* ---------- Control bar divider ---------- */
+    .control-bar-divider { width: 1px; height: 28px; background: var(--border); align-self: center; }
+
+    /* ---------- Notification banner ---------- */
+    .notif-banner {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 50;
+      text-align: center; padding: 10px 16px; font-size: 0.9rem; font-weight: 500;
+      background: var(--accent-dim); color: var(--text);
+      animation: notif-slide 0.3s ease-out;
+    }
+    @keyframes notif-slide {
+      0% { transform: translateY(-100%); }
+      100% { transform: translateY(0); }
+    }
+
+    /* ---------- Participants panel ---------- */
+    .participants-panel {
+      width: 260px; background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-right 0.3s;
+    }
+    .participants-panel.closed { margin-right: -261px; }
+    .side-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .participants-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+    .participants-list :global(.part-item) {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 10px; background: var(--bg); min-height: 44px;
+    }
+    .participants-list :global(.part-item.self) { outline: 1px solid var(--accent-dim); }
+    .participants-list :global(.part-avatar) {
+      width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+      font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.95); flex: none;
+    }
+    .participants-list :global(.part-info) { flex: 1; min-width: 0; }
+    .participants-list :global(.part-name) { font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 4px; }
+    .participants-list :global(.part-lang) { font-size: 0.72rem; color: var(--muted); }
+    .participants-list :global(.part-status) { display: flex; align-items: center; gap: 6px; flex: none; }
+    .participants-list :global(.part-status .ico) { width: 16px; height: 16px; }
+    .participants-list :global(.part-hand) { font-size: 1.1rem; animation: hand-wave 0.6s ease-in-out infinite alternate; }
+    .participants-list :global(.part-status-danger) { color: var(--danger); }
+    .participants-list :global(.part-status-muted) { color: var(--muted); }
 
     @media (max-width: 768px) {
       #call { flex-direction: column; }
@@ -552,6 +673,13 @@ const LANGS = [
       }
       .chat-panel.closed { margin-right: 0; }
       .chat-panel.open { transform: translateY(0); }
+      .participants-panel {
+        position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 50vh;
+        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
+      }
+      .participants-panel.closed { margin-right: 0; }
+      .participants-panel.open { transform: translateY(0); }
       .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
     }
   </style>

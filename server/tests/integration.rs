@@ -181,6 +181,42 @@ async fn lifecycle_signaling_mute_and_lobby() {
 }
 
 #[tokio::test]
+async fn emoji_reaction_and_hand_raise_broadcast() {
+    let (addr, _) = spawn().await;
+
+    // Private rooms (no `public`) need no login, so guests can connect.
+    let mut a = connect(addr, "room=rx&lang=it&id=a&name=Alice").await;
+    assert_eq!(
+        next_json(&mut a, 1000).await.unwrap()["type"],
+        "room_joined"
+    );
+    let mut b = connect(addr, "room=rx&lang=en&id=b&name=Bob").await;
+    assert_eq!(
+        next_json(&mut b, 1000).await.unwrap()["type"],
+        "room_joined"
+    );
+    wait_for(&mut a, "peer_joined", 1000).await.unwrap();
+
+    // Emoji reactions broadcast to everyone, including the sender.
+    send_text(&mut a, r#"{"type":"emoji","emoji":"👍"}"#).await;
+    let er = wait_for(&mut b, "emoji_reaction", 1000).await.unwrap();
+    assert_eq!(er["peer_id"], "a");
+    assert_eq!(er["peer_name"], "Alice");
+    assert_eq!(er["emoji"], "👍");
+    // The sender receives its own reaction too (broadcast, not broadcast_except).
+    assert_eq!(
+        wait_for(&mut a, "emoji_reaction", 1000).await.unwrap()["emoji"],
+        "👍"
+    );
+
+    // Hand-raise is relayed to the other peers only (broadcast_except).
+    send_text(&mut a, r#"{"type":"hand_raise","raised":true}"#).await;
+    let hr = wait_for(&mut b, "hand_raised", 1000).await.unwrap();
+    assert_eq!(hr["peer_id"], "a");
+    assert_eq!(hr["raised"], true);
+}
+
+#[tokio::test]
 async fn room_full_rejects_fifth() {
     let (addr, _) = spawn().await;
     let mut held = Vec::new();

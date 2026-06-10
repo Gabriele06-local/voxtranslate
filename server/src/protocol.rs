@@ -42,6 +42,14 @@ pub enum ClientMessage {
     MuteVideo {
         muted: bool,
     },
+    /// An emoji reaction sent to the room (no translation needed).
+    Emoji {
+        emoji: String,
+    },
+    /// Toggle hand-raise state, broadcast to peers.
+    HandRaise {
+        raised: bool,
+    },
 }
 
 // --- Server -> Client ------------------------------------------------------
@@ -112,6 +120,19 @@ pub enum ServerMessage {
         peer_id: String,
         kind: String,
         muted: bool,
+    },
+
+    /// An emoji reaction from a peer, broadcast to everyone.
+    EmojiReaction {
+        peer_id: String,
+        peer_name: String,
+        emoji: String,
+    },
+
+    /// A peer raised or lowered their hand.
+    HandRaised {
+        peer_id: String,
+        raised: bool,
     },
 
     /// Live partial transcript for a speaker (original language), broadcast so
@@ -314,6 +335,21 @@ mod tests {
         assert!(ServerMessage::BalanceExhausted
             .to_json()
             .contains("\"type\":\"balance_exhausted\""));
+
+        // Emoji reactions + hand-raise (PR #1).
+        let e = ServerMessage::EmojiReaction {
+            peer_id: "a".into(),
+            peer_name: "Alice".into(),
+            emoji: "👍".into(),
+        }
+        .to_json();
+        assert!(e.contains("\"type\":\"emoji_reaction\"") && e.contains("\"emoji\":\"👍\""));
+        let h = ServerMessage::HandRaised {
+            peer_id: "a".into(),
+            raised: true,
+        }
+        .to_json();
+        assert!(h.contains("\"type\":\"hand_raised\"") && h.contains("\"raised\":true"));
     }
 
     #[test]
@@ -353,6 +389,15 @@ mod tests {
             serde_json::from_str::<ClientMessage>(r#"{"type":"mute_video","muted":false}"#)
                 .unwrap(),
             ClientMessage::MuteVideo { muted: false }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"emoji","emoji":"👍"}"#).unwrap(),
+            ClientMessage::Emoji { emoji } if emoji == "👍"
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"hand_raise","raised":true}"#)
+                .unwrap(),
+            ClientMessage::HandRaise { raised: true }
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
     }

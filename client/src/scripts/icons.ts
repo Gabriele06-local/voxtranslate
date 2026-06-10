@@ -35,6 +35,28 @@ const PATHS: Record<string, string> = {
     '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
   block:
     '<circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>',
+  hand:
+    '<path d="M18 8.5V4a2 2 0 0 0-4 0v4.5"/><path d="M14 8.5V2a2 2 0 0 0-4 0v6.5"/><path d="M10 8.5V4a2 2 0 0 0-4 0v8.5"/><path d="M22 12.5V10a2 2 0 0 0-4 0v2.5"/><rect x="6" y="12" width="16" height="10" rx="2"/>',
+  'hand-raised':
+    '<path d="M18 8.5V4a2 2 0 0 0-4 0v4.5"/><path d="M14 8.5V2a2 2 0 0 0-4 0v6.5"/><path d="M10 8.5V4a2 2 0 0 0-4 0v8.5"/><path d="M22 12.5V10a2 2 0 0 0-4 0v2.5"/><rect x="6" y="12" width="16" height="10" rx="2"/><circle cx="18" cy="7" r="3" fill="currentColor" stroke="none"/>',
+  fullscreen:
+    '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
+  'fullscreen-off':
+    '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>',
+  pip:
+    '<path d="M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/><rect x="10" y="11" width="8" height="5" rx="1"/>',
+  pin:
+    '<path d="M12 2v20M2 12h20"/>',
+  'pin-off':
+    '<path d="M12 2v20M2 12h20"/><line x1="2" y1="2" x2="22" y2="22"/>',
+  grid:
+    '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
+  speaker:
+    '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="14" y="14" width="6" height="6" rx="1"/><rect x="4" y="14" width="8" height="6" rx="1"/>',
+  monitor:
+    '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+  recording:
+    '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>',
 };
 
 /** Return inline SVG markup for `name`, drawn in `currentColor`. */

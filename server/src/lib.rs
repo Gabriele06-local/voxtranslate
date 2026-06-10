@@ -601,6 +601,28 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 .to_json(),
                             );
                         }
+                        Ok(ClientMessage::Emoji { emoji }) => {
+                            state.rooms.broadcast(
+                                &room,
+                                &ServerMessage::EmojiReaction {
+                                    peer_id: id.clone(),
+                                    peer_name: name.clone(),
+                                    emoji,
+                                }
+                                .to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::HandRaise { raised }) => {
+                            state.rooms.broadcast_except(
+                                &room,
+                                &id,
+                                &ServerMessage::HandRaised {
+                                    peer_id: id.clone(),
+                                    raised,
+                                }
+                                .to_json(),
+                            );
+                        }
                         Err(_) => {} // unknown / malformed control frame
                     },
                     Message::Close(_) => break,

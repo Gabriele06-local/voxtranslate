@@ -80,7 +80,18 @@ const chatBadge = $('chat-badge');
 const btnMic = $('btn-mic');
 const btnCam = $('btn-cam');
 const btnTts = $('btn-tts');
+const btnHand = $('btn-hand');
 const btnChat = $('btn-chat');
+const btnFullscreen = $('btn-fullscreen');
+const btnPip = $('btn-pip');
+const btnParticipants = $('btn-participants');
+const btnView = $('btn-view');
+const btnShare = $('btn-share');
+const btnRecord = $('btn-record');
+const notifBanner = $('notif-banner');
+const participantsPanel = $('participants-panel');
+const participantsList = $('participants-list');
+const partClose = $('part-close');
 
 // ---- State -----------------------------------------------------------------
 const myId =
@@ -98,10 +109,22 @@ let visibilityPublic = true;
 let micOn = true;
 let camOn = true;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
+let handRaised = false;
+let pipWindow: Window | null = null;
 let manualClose = false;
+let viewMode: 'grid' | 'speaker' = 'grid';
+let pinnedPeerId: string | null = null;
+let lastSpeakerId: string | null = null;
+let isSharingScreen = false;
+let screenStream: MediaStream | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let isRecording = false;
+let recordedChunks: Blob[] = [];
 
 const peerNames = new Map<string, { name: string; lang: string; avatar?: string | null }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
+const peerMicMuted = new Map<string, boolean>(); // mic muted state from peer_muted
+const peerHandRaised = new Map<string, boolean>(); // hand-raise state
 const subtitleTimers = new Map<string, number>();
 
 // ============================================================================
@@ -358,6 +381,7 @@ function startCall(): void {
   callRoom.textContent = session.room;
   callVis.textContent = session.isPublic ? t('public') : t('private');
   videoGrid.innerHTML = '';
+  videoGrid.dataset.mode = 'grid';
   peerNames.clear();
 
   // micOn / camOn carry over from the pre-join toggles.
@@ -424,6 +448,7 @@ async function handleServer(msg: any): Promise<void> {
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
         await mesh?.addPeer(p.id, false); // they'll initiate the offer
       }
+      updateParticipantsList();
       break;
     case 'peer_joined':
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
@@ -432,10 +457,13 @@ async function handleServer(msg: any): Promise<void> {
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
       if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
+      updateParticipantsList();
       break;
     case 'peer_left':
       mesh?.removePeer(msg.peer_id);
       removeCell(msg.peer_id);
+      peerHandRaised.delete(msg.peer_id);
+      updateParticipantsList();
       break;
     case 'room_full':
       leaveCall();
@@ -455,11 +483,25 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'peer_muted':
       if (msg.kind === 'audio') {
+        peerMicMuted.set(msg.peer_id, msg.muted);
         setAudioMuted(msg.peer_id, msg.muted);
       } else {
         peerCamOff.set(msg.peer_id, msg.muted);
         setCameraOff(msg.peer_id, msg.muted);
       }
+      updateParticipantsList();
+      break;
+    case 'emoji_reaction':
+      showEmojiReaction(msg.peer_id, msg.emoji);
+      break;
+    case 'hand_raised':
+      peerHandRaised.set(msg.peer_id, msg.raised);
+      setHandIndicator(msg.peer_id, msg.raised);
+      if (msg.raised && msg.peer_id !== myId) {
+        const pname = peerNames.get(msg.peer_id)?.name || 'Someone';
+        showNotif(`✋ ${pname} ${t('handRaisedNotif')}`);
+      }
+      updateParticipantsList();
       break;
     case 'subtitle_interim':
       showSubtitle(msg.speaker_id, msg.text, true);
@@ -468,6 +510,11 @@ async function handleServer(msg: any): Promise<void> {
       const myLang = session?.lang || 'en';
       const text = msg.translations?.[myLang] ?? msg.original;
       showSubtitle(msg.speaker_id, text, false, msg.original);
+      // Track active speaker for speaker view
+      if (msg.speaker_id !== myId) {
+        lastSpeakerId = msg.speaker_id;
+        if (viewMode === 'speaker') layoutVideos();
+      }
       // Speak only foreign-language speakers (same-language → you hear their
       // real voice). Their original WebRTC audio is muted by applyAudioMode().
       if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang) speak(text, myLang);
@@ -586,6 +633,17 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   mute.hidden = true;
   mute.innerHTML = icon('mic-off', 14);
   overlay.append(nameEl, langEl, mute);
+  if (!isSelf) {
+    const pinBtn = document.createElement('span');
+    pinBtn.className = 'pin-btn';
+    pinBtn.innerHTML = icon('pin', 14);
+    pinBtn.title = t('pinTip');
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePin(id);
+    });
+    overlay.appendChild(pinBtn);
+  }
   cell.appendChild(overlay);
 
   const subs = document.createElement('div');
@@ -628,6 +686,8 @@ function removeCell(id: string): void {
   if (cell) cell.remove();
   peerNames.delete(id);
   peerCamOff.delete(id);
+  if (pinnedPeerId === id) pinnedPeerId = null;
+  if (lastSpeakerId === id) lastSpeakerId = null;
   updateGridCount();
 }
 
@@ -636,37 +696,94 @@ function updateGridCount(): void {
   layoutVideos();
 }
 
-// The grid fills the whole stage (videos use object-fit: cover, so they keep
-// their proportions and fill the space with minimal cropping — no black bars,
-// no scroll). Columns/rows adapt to count + orientation so cells stay as close
-// to the camera aspect as possible (portrait stacks two peers vertically).
+// The grid fills the whole stage. In focus mode (pinned or speaker), the main
+// cell fills the stage and others become small overlays at the bottom-right.
 function layoutVideos(): void {
   const stage = document.querySelector('.video-stage') as HTMLElement | null;
   if (!stage) return;
-  const n = Math.max(videoGrid.querySelectorAll('.video-cell').length, 1);
+  const allCells = [...videoGrid.querySelectorAll<HTMLElement>('.video-cell')];
+  const n = Math.max(allCells.length, 1);
   const sw = stage.clientWidth;
   const sh = stage.clientHeight;
   if (sw === 0 || sh === 0) return;
 
-  let cols: number;
-  let rows: number;
-  if (n <= 1) {
-    cols = 1;
-    rows = 1;
-  } else if (n === 2) {
-    if (sw >= sh) {
-      cols = 2;
-      rows = 1;
-    } else {
-      cols = 1;
-      rows = 2;
+  // Determine focus id
+  const focusId = pinnedPeerId || (viewMode === 'speaker' ? lastSpeakerId : null);
+  const focusCell = focusId ? videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(focusId)}"]`) : null;
+
+  // Remove all special classes first
+  allCells.forEach((c) => c.classList.remove('main-cell', 'video-thumb', 'active-speaker'));
+
+  if (focusCell && focusId && n > 1) {
+    // Focus mode: one main + thumbnails
+    videoGrid.dataset.mode = 'focus';
+    videoGrid.style.gridTemplateColumns = '';
+    videoGrid.style.gridTemplateRows = '';
+    videoGrid.style.position = 'relative';
+    videoGrid.style.width = '100%';
+    videoGrid.style.height = '100%';
+
+    focusCell.classList.add('main-cell');
+
+    for (const cell of allCells) {
+      if (cell === focusCell) continue;
+      cell.classList.add('video-thumb');
+      // Click thumbnail to pin
+      const id = cell.dataset.peer || '';
+      cell.addEventListener('click', () => { if (id) togglePin(id); }, { once: true });
+    }
+
+    // Mark active speaker
+    if (lastSpeakerId && lastSpeakerId !== pinnedPeerId) {
+      const as = videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(lastSpeakerId)}"]`);
+      if (as) as.classList.add('active-speaker');
     }
   } else {
-    cols = 2;
-    rows = 2;
+    // Grid mode (default)
+    videoGrid.dataset.mode = 'grid';
+    let cols: number, rows: number;
+    if (n <= 1) {
+      cols = 1; rows = 1;
+    } else if (n === 2) {
+      if (sw >= sh) { cols = 2; rows = 1; }
+      else { cols = 1; rows = 2; }
+    } else {
+      cols = 2; rows = 2;
+    }
+    videoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    videoGrid.style.position = '';
+    videoGrid.style.width = '';
+    videoGrid.style.height = '';
+
+    // Mark active speaker in grid mode
+    if (lastSpeakerId) {
+      const as = videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(lastSpeakerId)}"]`);
+      if (as) as.classList.add('active-speaker');
+    }
   }
-  videoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+}
+
+function togglePin(id: string): void {
+  if (pinnedPeerId === id) {
+    pinnedPeerId = null;
+  } else {
+    pinnedPeerId = id;
+    if (viewMode === 'speaker') viewMode = 'grid';
+  }
+  setControlState();
+  layoutVideos();
+  updatePinButtons();
+}
+
+function updatePinButtons(): void {
+  videoGrid.querySelectorAll<HTMLElement>('.pin-btn').forEach((btn) => {
+    const cell = btn.closest<HTMLElement>('[data-peer]');
+    const id = cell?.dataset.peer || '';
+    const isPinned = id === pinnedPeerId;
+    btn.innerHTML = icon(isPinned ? 'pin-off' : 'pin', 14);
+    btn.title = isPinned ? t('unpinTip') : t('pinTip');
+  });
 }
 
 function attachStream(id: string, stream: MediaStream): void {
@@ -717,6 +834,100 @@ function setAudioMuted(id: string, muted: boolean): void {
   if (cell) (cell.querySelector('.mute-indicator') as HTMLElement).hidden = !muted;
 }
 
+function setHandIndicator(id: string, raised: boolean): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
+  if (!cell) return;
+  let indicator = cell.querySelector('.hand-indicator') as HTMLElement | null;
+  if (raised) {
+    if (!indicator) {
+      indicator = document.createElement('span');
+      indicator.className = 'hand-indicator';
+      indicator.textContent = '✋';
+      cell.appendChild(indicator);
+    }
+  } else if (indicator) {
+    indicator.remove();
+  }
+}
+
+function showEmojiReaction(peerId: string, emoji: string): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peerId)}"]`);
+  if (!cell) return;
+  const floater = document.createElement('span');
+  floater.className = 'emoji-float';
+  floater.textContent = emoji;
+  cell.appendChild(floater);
+  setTimeout(() => floater.remove(), 1500);
+}
+
+// ---- Notification banner ---------------------------------------------------
+let notifTimer: number | null = null;
+function showNotif(text: string): void {
+  notifBanner.textContent = text;
+  notifBanner.classList.remove('hidden');
+  if (notifTimer) clearTimeout(notifTimer);
+  notifTimer = window.setTimeout(() => notifBanner.classList.add('hidden'), 4000);
+}
+
+// ---- Participants panel ----------------------------------------------------
+function toggleParticipants(force?: boolean): void {
+  const open = force ?? participantsPanel.classList.contains('closed');
+  participantsPanel.classList.toggle('open', open);
+  participantsPanel.classList.toggle('closed', !open);
+  if (open) updateParticipantsList();
+  setTimeout(layoutVideos, 320);
+}
+
+partClose.addEventListener('click', () => toggleParticipants(false));
+
+function updateParticipantsList(): void {
+  const myLang = session?.lang || 'en';
+  const myName = session?.name || t('namePlaceholder');
+  const items: Array<{ id: string; name: string; lang: string; isSelf: boolean; micMuted: boolean; handRaised: boolean }> = [];
+
+  items.push({ id: myId, name: myName, lang: myLang, isSelf: true, micMuted: !micOn, handRaised });
+  for (const [id, info] of peerNames) {
+    items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false });
+  }
+
+  participantsList.innerHTML = '';
+  for (const p of items) {
+    const el = document.createElement('div');
+    el.className = `part-item${p.isSelf ? ' self' : ''}`;
+
+    const avatar = document.createElement('span');
+    avatar.className = 'part-avatar';
+    avatar.style.background = avatarGradient(p.name);
+    avatar.textContent = p.name.slice(0, 2).toUpperCase();
+
+    const info = document.createElement('div');
+    info.className = 'part-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'part-name';
+    nameEl.innerHTML = `${FLAG[p.lang] || ''} ${p.name}${p.isSelf ? ` · ${t('you')}` : ''}`.trim();
+    const langEl = document.createElement('div');
+    langEl.className = 'part-lang';
+    langEl.textContent = p.lang.toUpperCase();
+    info.append(nameEl, langEl);
+
+    const status = document.createElement('div');
+    status.className = 'part-status';
+    if (p.handRaised) {
+      const hand = document.createElement('span');
+      hand.className = 'part-hand';
+      hand.textContent = '✋';
+      status.appendChild(hand);
+    }
+    if (p.micMuted) {
+      status.innerHTML += icon('mic-off', 16);
+      status.querySelector('.ico')?.classList.add('part-status-danger');
+    }
+
+    el.append(avatar, info, status);
+    participantsList.appendChild(el);
+  }
+}
+
 // ---- Subtitles -------------------------------------------------------------
 function showSubtitle(speakerId: string, text: string, interim: boolean, original?: string): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(speakerId)}"]`);
@@ -758,6 +969,21 @@ function setControlState(): void {
   btnCam.innerHTML = icon(camOn ? 'video' : 'video-off');
   btnTts.classList.toggle('active-success', ttsOn);
   btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
+  btnHand.classList.toggle('active-success', handRaised);
+  btnHand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
+  btnHand.title = handRaised ? t('handUp') : t('handTip');
+  btnFullscreen.innerHTML = icon(document.fullscreenElement ? 'fullscreen-off' : 'fullscreen');
+  btnPip.innerHTML = icon('pip');
+  btnView.innerHTML = icon(viewMode === 'speaker' ? 'speaker' : 'grid');
+  btnView.title = t(viewMode === 'speaker' ? 'viewGrid' : 'viewSpeaker');
+  btnShare.innerHTML = icon(isSharingScreen ? 'monitor' : 'monitor');
+  btnShare.classList.toggle('active-success', isSharingScreen);
+  btnShare.title = isSharingScreen ? t('stopShare') : t('screenShareTip');
+  btnRecord.innerHTML = icon('recording');
+  btnRecord.classList.toggle('active-danger', isRecording);
+  btnRecord.title = isRecording ? t('recording') : t('recordingTip');
+  const partIco = btnParticipants.querySelector('.part-ico');
+  if (partIco) partIco.innerHTML = icon('users');
   const chatIco = btnChat.querySelector('.chat-ico');
   if (chatIco) chatIco.innerHTML = icon('chat');
   const leave = document.getElementById('btn-leave');
@@ -788,6 +1014,159 @@ btnTts.addEventListener('click', () => {
   setControlState();
 });
 
+btnHand.addEventListener('click', () => {
+  handRaised = !handRaised;
+  ws?.send(JSON.stringify({ type: 'hand_raise', raised: handRaised }));
+  setControlState();
+});
+
+btnFullscreen.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+});
+
+btnPip.addEventListener('click', () => {
+  if (pipWindow && !pipWindow.closed) {
+    pipWindow.close();
+    pipWindow = null;
+    return;
+  }
+  if ('documentPictureInPicture' in window) {
+    (window as any).documentPictureInPicture.requestWindow({ width: 480, height: 360 }).then((w: Window) => {
+      pipWindow = w;
+      const stage = document.querySelector('.video-stage') as HTMLElement;
+      if (stage) {
+        w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+        const clone = stage.cloneNode(true) as HTMLElement;
+        clone.style.cssText = 'width:100%;height:100dvh';
+        w.document.body.appendChild(clone);
+        // Re-set video srcObjects in the cloned stage
+        clone.querySelectorAll('video').forEach((v) => {
+          const peer = (v.closest('[data-peer]') as HTMLElement)?.dataset.peer;
+          if (!peer) return;
+          const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peer)}"]`);
+          if (cell) {
+            const src = (cell.querySelector('video') as HTMLVideoElement)?.srcObject;
+            if (src) v.srcObject = src;
+          }
+        });
+      }
+      w.addEventListener('pagehide', () => { pipWindow = null; });
+    }).catch(() => {});
+  }
+});
+
+btnView.addEventListener('click', () => {
+  viewMode = viewMode === 'grid' ? 'speaker' : 'grid';
+  if (viewMode === 'grid') pinnedPeerId = null;
+  setControlState();
+  layoutVideos();
+  updatePinButtons();
+});
+
+btnShare.addEventListener('click', () => {
+  if (isSharingScreen) {
+    stopScreenShare();
+  } else {
+    startScreenShare();
+  }
+});
+
+async function startScreenShare(): Promise<void> {
+  if (!mesh || !localStream) return;
+  try {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    screenStream = s;
+    isSharingScreen = true;
+    // Replace video track on all peers with screen track (audio stays from mic)
+    mesh.setLocalStream(s);
+    // Show indicator on self cell
+    const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+    if (cell) {
+      let badge = cell.querySelector('.screen-share-badge') as HTMLElement | null;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'screen-share-badge';
+        badge.textContent = '🖥';
+        cell.querySelector('.video-overlay')?.appendChild(badge);
+      }
+    }
+    // Stop sharing when user clicks "Stop sharing" in browser
+    s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
+    setControlState();
+  } catch {
+    // User cancelled
+  }
+}
+
+function stopScreenShare(): void {
+  if (!isSharingScreen || !mesh || !localStream) return;
+  isSharingScreen = false;
+  if (screenStream) {
+    screenStream.getTracks().forEach((t) => t.stop());
+    screenStream = null;
+  }
+  // Restore camera stream
+  mesh.setLocalStream(localStream);
+  // Remove badge
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+  cell?.querySelector('.screen-share-badge')?.remove();
+  setControlState();
+  showNotif(t('stopShare'));
+}
+
+btnRecord.addEventListener('click', () => {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
+function startRecording(): void {
+  if (!localStream) return;
+  recordedChunks = [];
+  try {
+    const mimeType = 'video/webm;codecs=vp9,opus';
+    mediaRecorder = new MediaRecorder(localStream, { mimeType });
+  } catch {
+    try {
+      mediaRecorder = new MediaRecorder(localStream, { mimeType: 'video/webm;codecs=vp8,opus' });
+    } catch {
+      mediaRecorder = new MediaRecorder(localStream);
+    }
+  }
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data.size > 0) recordedChunks.push(e.data);
+  };
+  mediaRecorder.onstop = () => {
+    if (recordedChunks.length === 0) return;
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `voxtranslate-${session?.room || 'call'}-${Date.now()}.webm`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  mediaRecorder.start(1000);
+  isRecording = true;
+  showNotif(t('recording'));
+  setControlState();
+}
+
+function stopRecording(): void {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+  mediaRecorder.stop();
+  isRecording = false;
+  setControlState();
+}
+
+btnParticipants.addEventListener('click', () => toggleParticipants());
+
 btnChat.addEventListener('click', () => toggleChat());
 $('chat-close').addEventListener('click', () => toggleChat(false));
 function toggleChat(force?: boolean): void {
@@ -815,6 +1194,11 @@ function leaveCall(): void {
   manualClose = true;
   audioCapture?.stop();
   mesh?.destroy();
+  if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (isSharingScreen) stopScreenShare();
+  if (isRecording) stopRecording();
+  if (screenStream) { screenStream.getTracks().forEach((t) => t.stop()); screenStream = null; }
   if (ws) {
     ws.close(1000, 'leave');
     ws = null;
@@ -824,10 +1208,16 @@ function leaveCall(): void {
     localStream = null;
   }
   if (window.speechSynthesis) speechSynthesis.cancel();
+  handRaised = false;
+  viewMode = 'grid';
+  pinnedPeerId = null;
+  lastSpeakerId = null;
   mesh = null;
   audioCapture = null;
   chat = null;
   chatPanel.classList.remove('open');
+  participantsPanel.classList.remove('open');
+  participantsPanel.classList.add('closed');
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
@@ -1278,6 +1668,7 @@ function initCookieBanner(): void {
 // ---- Boot ------------------------------------------------------------------
 window.addEventListener('resize', layoutVideos);
 window.addEventListener('orientationchange', () => setTimeout(layoutVideos, 200));
+document.addEventListener('fullscreenchange', setControlState);
 $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
@@ -1286,5 +1677,33 @@ $('buy-close').innerHTML = icon('close', 16);
 $('privacy-open').innerHTML = icon('shield', 16);
 $('report-close').innerHTML = icon('close', 16);
 $('privacy-close').innerHTML = icon('close', 16);
+$('part-close').innerHTML = icon('close', 16);
+
+// ---- Emoji picker ----------------------------------------------------------
+const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];
+const emojiToggle = $('emoji-toggle');
+const emojiPanel = $('emoji-panel');
+const emojiGrid = $('emoji-grid');
+
+for (const em of EMOJI_LIST) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = em;
+  btn.addEventListener('click', () => sendEmoji(em));
+  emojiGrid.appendChild(btn);
+}
+
+emojiToggle.addEventListener('click', (e) => {
+  e.stopPropagation();
+  emojiPanel.classList.toggle('hidden');
+});
+document.addEventListener('click', () => emojiPanel.classList.add('hidden'));
+
+function sendEmoji(emoji: string): void {
+  ws?.send(JSON.stringify({ type: 'emoji', emoji }));
+  emojiPanel.classList.add('hidden');
+}
+
 initCookieBanner();
+// boot() runs the lobby (startLobby) and resumes any session.
 void boot();
