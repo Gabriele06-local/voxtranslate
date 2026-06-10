@@ -50,6 +50,11 @@ export async function joinCall(
   });
   await page.click('#join-btn');
   await page.waitForSelector('#call:not(.hidden)');
+  // The consent/cookie banner is fixed to the bottom of the viewport and overlays
+  // the in-call control bar; accept it (as a real user would) so the controls
+  // beneath it are clickable.
+  const cookieAccept = page.locator('#cookie-accept');
+  if (await cookieAccept.isVisible().catch(() => false)) await cookieAccept.click();
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
