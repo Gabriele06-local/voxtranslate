@@ -1,0 +1,115 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="404 · VoxTranslate">
+  <main class="nf">
+    <div class="nf-card">
+      <div class="nf-glyph" aria-hidden="true">
+        <span class="nf-404">404</span>
+        <span class="nf-globe">🌐</span>
+      </div>
+      <h1 id="nf-title" class="nf-title">Lost in translation</h1>
+      <p id="nf-text" class="nf-text">
+        This page couldn’t be found — it may have moved, or the link is broken.
+      </p>
+      <a id="nf-home" class="nf-btn" href="/">Back to VoxTranslate</a>
+    </div>
+  </main>
+
+  <script>
+    // Localize the 404 from the browser language (self-contained — no app bundle).
+    const T: Record<string, [string, string, string]> = {
+      en: ['Lost in translation', 'This page couldn’t be found — it may have moved, or the link is broken.', 'Back to VoxTranslate'],
+      it: ['Persa nella traduzione', 'Questa pagina non è stata trovata — potrebbe essere stata spostata o il link è errato.', 'Torna a VoxTranslate'],
+      es: ['Perdida en la traducción', 'No se encontró esta página — puede que se haya movido o el enlace esté roto.', 'Volver a VoxTranslate'],
+      fr: ['Perdue dans la traduction', 'Cette page est introuvable — elle a peut-être été déplacée ou le lien est rompu.', 'Retour à VoxTranslate'],
+      de: ['Lost in Translation', 'Diese Seite wurde nicht gefunden — sie wurde vielleicht verschoben oder der Link ist defekt.', 'Zurück zu VoxTranslate'],
+      pt: ['Perdida na tradução', 'Esta página não foi encontrada — pode ter sido movida ou o link está quebrado.', 'Voltar ao VoxTranslate'],
+      ja: ['翻訳の中で迷子', 'このページは見つかりませんでした。移動したか、リンクが切れている可能性があります。', 'VoxTranslate に戻る'],
+      zh: ['迷失在翻译中', '找不到此页面 — 它可能已被移动，或链接已失效。', '返回 VoxTranslate'],
+    };
+    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    const [title, text, home] = T[lang] || T.en;
+    document.getElementById('nf-title')!.textContent = title;
+    document.getElementById('nf-text')!.textContent = text;
+    document.getElementById('nf-home')!.textContent = home;
+    document.documentElement.lang = lang;
+  </script>
+
+  <style>
+    .nf {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(59, 130, 246, 0.18), transparent 60%),
+        var(--bg);
+    }
+    .nf-card {
+      text-align: center;
+      max-width: 460px;
+      width: 100%;
+    }
+    .nf-glyph {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      margin-bottom: 8px;
+    }
+    .nf-404 {
+      font-size: clamp(96px, 28vw, 168px);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, #60a5fa, #3b82f6 45%, #1e3a8a);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      filter: drop-shadow(0 10px 40px rgba(59, 130, 246, 0.35));
+    }
+    .nf-globe {
+      position: absolute;
+      top: -6px;
+      right: -2px;
+      font-size: clamp(28px, 8vw, 44px);
+      animation: nf-float 4s ease-in-out infinite;
+    }
+    @keyframes nf-float {
+      0%, 100% { transform: translateY(0) rotate(-6deg); }
+      50% { transform: translateY(-10px) rotate(6deg); }
+    }
+    .nf-title {
+      font-size: 1.6rem;
+      margin: 4px 0 8px;
+      color: var(--text);
+    }
+    .nf-text {
+      color: var(--muted);
+      font-size: 0.98rem;
+      margin: 0 auto 24px;
+      max-width: 38ch;
+    }
+    .nf-btn {
+      display: inline-block;
+      padding: 12px 24px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+      box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+    }
+    .nf-btn:hover {
+      transform: translateY(-2px);
+      background: #2f74e0;
+      box-shadow: 0 12px 30px rgba(59, 130, 246, 0.42);
+    }
+    .nf-btn:active { transform: translateY(0); }
+    @media (prefers-reduced-motion: reduce) {
+      .nf-globe { animation: none; }
+    }
+  </style>
+</Base>

@@ -7,7 +7,7 @@
 // Translations interface; the client renders the requested language, falling
 // back to English, then to its bundled copy.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -25,10 +25,35 @@ const LANGUAGES = [
   ['ja', '日本語'],
   ['zh', '中文'],
 ];
+
+// Localized titles per page slug. The body for each language is read from
+// directus/legal/<slug>.<lang>.md (any languages missing a file are skipped —
+// the client then falls back to English, then to its bundled copy).
 const PAGES = [
-  ['terms', 'Terms of Service', 'terms.en.md'],
-  ['privacy', 'Privacy Policy', 'privacy.en.md'],
-  ['acceptable-use', 'Acceptable Use Policy', 'acceptable-use.en.md'],
+  {
+    slug: 'terms',
+    titles: {
+      en: 'Terms of Service', it: 'Termini di servizio', es: 'Términos del servicio',
+      fr: 'Conditions d’utilisation', de: 'Nutzungsbedingungen', pt: 'Termos de Serviço',
+      ja: '利用規約', zh: '服务条款',
+    },
+  },
+  {
+    slug: 'privacy',
+    titles: {
+      en: 'Privacy Policy', it: 'Informativa sulla privacy', es: 'Política de privacidad',
+      fr: 'Politique de confidentialité', de: 'Datenschutzerklärung', pt: 'Política de Privacidade',
+      ja: 'プライバシーポリシー', zh: '隐私政策',
+    },
+  },
+  {
+    slug: 'acceptable-use',
+    titles: {
+      en: 'Acceptable Use Policy', it: 'Politica di uso consentito', es: 'Política de uso aceptable',
+      fr: 'Politique d’usage acceptable', de: 'Richtlinie zur akzeptablen Nutzung',
+      pt: 'Política de Uso Aceitável', ja: '利用規定', zh: '可接受使用政策',
+    },
+  },
 ];
 
 const out = [];
@@ -46,18 +71,23 @@ LANGUAGES.forEach(([code, name], i) => {
 });
 
 out.push('');
-out.push('-- Legal pages + English body (markdown).');
-for (const [slug, title, file] of PAGES) {
-  const body = readFileSync(join(here, 'legal', file), 'utf8').trimEnd();
+out.push('-- Legal pages + per-language body (markdown), one row per <slug>.<lang>.md.');
+for (const { slug, titles } of PAGES) {
   out.push(
     `INSERT INTO legal_pages (slug, version) VALUES (${q(slug)}, ${q(VERSION)}) ` +
       `ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;`,
   );
-  out.push(
-    `INSERT INTO legal_translations (page_id, language, title, body)\n` +
-      `  SELECT id, 'en', ${q(title)}, ${q(body)} FROM legal_pages WHERE slug = ${q(slug)}\n` +
-      `  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;`,
-  );
+  for (const [lang] of LANGUAGES) {
+    const path = join(here, 'legal', `${slug}.${lang}.md`);
+    if (!existsSync(path)) continue;
+    const body = readFileSync(path, 'utf8').trimEnd();
+    const title = titles[lang] || titles.en;
+    out.push(
+      `INSERT INTO legal_translations (page_id, language, title, body)\n` +
+        `  SELECT id, ${q(lang)}, ${q(title)}, ${q(body)} FROM legal_pages WHERE slug = ${q(slug)}\n` +
+        `  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;`,
+    );
+  }
 }
 
 out.push('COMMIT;');
