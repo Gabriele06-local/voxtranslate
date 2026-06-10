@@ -167,6 +167,261 @@ Podemos actualizar estos Términos de vez en cuando. Cuando haya cambios sustanc
 
 ¿Preguntas sobre estos Términos? Escríbenos a support@voxtranslate.app.' FROM legal_pages WHERE slug = 'terms'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'fr', 'Conditions d’utilisation', '> ⚠️ **Modèle provisoire — ne constitue pas un avis juridique.** Faites-le relire par un avocat qualifié avant de vous y fier.
+
+Bienvenue sur VoxTranslate (« le Service »), une application d''appels vidéo traduits en temps réel. Les présentes Conditions d''utilisation (« Conditions ») régissent votre accès au Service et son utilisation. En créant un compte, en vous connectant ou en utilisant le Service de toute autre manière, vous acceptez ces Conditions. Si vous ne les acceptez pas, n''utilisez pas le Service.
+
+## 1. Conditions d''admissibilité
+
+Vous devez avoir au moins 18 ans pour utiliser le Service. En l''utilisant, vous déclarez avoir 18 ans ou plus et disposer de la capacité juridique pour conclure ces Conditions. Le Service ne s''adresse pas aux enfants et nous ne collectons pas sciemment de données personnelles de personnes de moins de 18 ans.
+
+## 2. Comptes
+
+Certaines fonctionnalités nécessitent un compte, que vous créez en vous connectant avec Google. Vous êtes responsable de l''activité effectuée via votre compte et de la confidentialité de vos identifiants. Lorsque cela est autorisé, vous pouvez utiliser le Service en tant qu''invité ; l''accès invité peut être limité (par exemple par une limite de temps ou aux seuls salons privés).
+
+## 3. Usage acceptable
+
+Votre utilisation du Service est soumise à notre Politique d''usage acceptable, qui fait partie intégrante de ces Conditions. En résumé : n''utilisez pas le Service pour harceler, maltraiter, menacer ou nuire à autrui ; ne transmettez pas de contenus illégaux, haineux ou d''exploitation sexuelle ; et ne tentez pas de perturber ou de compromettre le Service.
+
+## 4. Crédits, facturation et remboursements
+
+- Les fonctionnalités payantes sont décomptées en crédits, achetés via notre prestataire de paiement (Stripe) et débités au fur et à mesure que vous utilisez les fonctionnalités à la consommation, comme le temps de parole transcrit et traduit.
+- Les prix et le contenu des packs sont affichés au moment de l''achat. Les crédits n''ont aucune valeur monétaire, ne sont pas transférables et — sauf si la loi l''exige — ne sont pas remboursables une fois consommés.
+- Vous êtes responsable des taxes éventuelles liées à vos achats, sauf indication contraire au moment du paiement.
+
+## 5. Contenus et modération
+
+Vous êtes seul responsable de l''audio, de la vidéo et du texte que vous transmettez. Pour garantir la sécurité du Service, nous appliquons un filtrage automatique des contenus à la parole transcrite et au chat, et nous mettons à disposition des outils pour signaler et bloquer des participants. Nous pouvons suspendre ou résilier des comptes, supprimer des contenus ou restreindre l''accès lorsque nous estimons raisonnablement que ces Conditions ou la Politique d''usage acceptable ont été enfreintes.
+
+## 6. Confidentialité
+
+Notre Politique de confidentialité explique quelles données nous traitons et pourquoi. En utilisant le Service, vous reconnaissez que l''audio est traité en temps réel pour fournir la transcription et la traduction, comme décrit dans cette politique.
+
+## 7. Disponibilité du Service
+
+Le Service est fourni « tel quel » et « selon disponibilité ». Nous ne garantissons pas qu''il sera ininterrompu, sécurisé ou exempt d''erreurs, et nous pouvons modifier, suspendre ou interrompre des fonctionnalités à tout moment.
+
+## 8. Exclusions de garantie et limitation de responsabilité
+
+Dans toute la mesure permise par la loi, le Service est fourni sans garantie d''aucune sorte, et nous ne sommes pas responsables des dommages indirects, accessoires ou consécutifs, ni des inexactitudes de traduction. Rien dans ces Conditions ne limite une responsabilité qui ne peut être limitée en vertu du droit applicable, y compris vos droits légaux en tant que consommateur.
+
+## 9. Résiliation
+
+Vous pouvez cesser d''utiliser le Service et supprimer votre compte à tout moment. Nous pouvons suspendre ou résilier votre accès si vous enfreignez ces Conditions. Les clauses qui, par leur nature, doivent survivre à la résiliation resteront en vigueur.
+
+## 10. Modifications de ces Conditions
+
+Nous pouvons mettre à jour ces Conditions de temps à autre. En cas de modification substantielle, nous mettrons à jour la version et la date et, le cas échéant, nous vous demanderons d''accepter les Conditions mises à jour avant de continuer à utiliser le Service.
+
+## 11. Contact
+
+Des questions sur ces Conditions ? Écrivez-nous à support@voxtranslate.app.' FROM legal_pages WHERE slug = 'terms'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'de', 'Nutzungsbedingungen', '> ⚠️ **Unverbindlicher Entwurf — keine Rechtsberatung.** Lassen Sie ihn von einer qualifizierten Anwältin oder einem qualifizierten Anwalt prüfen, bevor Sie sich darauf verlassen.
+
+Willkommen bei VoxTranslate („der Dienst“), einer Anwendung für Videoanrufe mit Echtzeit-Übersetzung. Diese Nutzungsbedingungen („Bedingungen“) regeln Ihren Zugang zum Dienst und dessen Nutzung. Indem Sie ein Konto erstellen, sich anmelden oder den Dienst anderweitig nutzen, stimmen Sie diesen Bedingungen zu. Wenn Sie nicht einverstanden sind, nutzen Sie den Dienst nicht.
+
+## 1. Nutzungsvoraussetzungen
+
+Sie müssen mindestens 18 Jahre alt sein, um den Dienst zu nutzen. Mit der Nutzung versichern Sie, dass Sie 18 Jahre oder älter sind und die Geschäftsfähigkeit besitzen, diese Bedingungen einzugehen. Der Dienst richtet sich nicht an Kinder, und wir erheben wissentlich keine personenbezogenen Daten von Personen unter 18 Jahren.
+
+## 2. Konten
+
+Einige Funktionen erfordern ein Konto, das Sie durch Anmeldung mit Google erstellen. Sie sind für die Aktivitäten unter Ihrem Konto und die sichere Aufbewahrung Ihrer Zugangsdaten verantwortlich. Wo zulässig, können Sie den Dienst als Gast nutzen; der Gastzugang kann eingeschränkt sein (zum Beispiel durch ein Zeitlimit oder die Beschränkung auf private Räume).
+
+## 3. Zulässige Nutzung
+
+Ihre Nutzung des Dienstes unterliegt unserer Richtlinie zur akzeptablen Nutzung, die Bestandteil dieser Bedingungen ist. Kurz gesagt: Nutzen Sie den Dienst nicht, um andere zu belästigen, zu missbrauchen, zu bedrohen oder zu schädigen; übertragen Sie keine illegalen, hasserfüllten oder sexuell ausbeuterischen Inhalte; und versuchen Sie nicht, den Dienst zu stören oder zu kompromittieren.
+
+## 4. Guthaben, Abrechnung und Erstattungen
+
+- Kostenpflichtige Funktionen werden in Credits abgerechnet, die über unseren Zahlungsdienstleister (Stripe) erworben und abgezogen werden, während Sie nutzungsbasierte Funktionen wie transkribierte und übersetzte Sprechzeit verwenden.
+- Preise und Paketinhalte werden zum Zeitpunkt des Kaufs angezeigt. Credits haben keinen Geldwert, sind nicht übertragbar und — außer soweit gesetzlich vorgeschrieben — nach Verbrauch nicht erstattungsfähig.
+- Sie sind für etwaige Steuern im Zusammenhang mit Ihren Käufen verantwortlich, sofern beim Bezahlvorgang nichts anderes angegeben ist.
+
+## 5. Inhalte und Moderation
+
+Sie sind allein verantwortlich für die Audio-, Video- und Textinhalte, die Sie übertragen. Um den Dienst sicher zu halten, wenden wir eine automatisierte Inhaltsfilterung auf transkribierte Sprache und den Chat an und stellen Werkzeuge bereit, um Teilnehmer zu melden und zu blockieren. Wir können Konten sperren oder kündigen, Inhalte entfernen oder den Zugang einschränken, wenn wir vernünftigerweise davon ausgehen, dass diese Bedingungen oder die Richtlinie zur akzeptablen Nutzung verletzt wurden.
+
+## 6. Datenschutz
+
+Unsere Datenschutzerklärung erläutert, welche Daten wir verarbeiten und warum. Mit der Nutzung des Dienstes erkennen Sie an, dass Audio in Echtzeit verarbeitet wird, um Transkription und Übersetzung bereitzustellen, wie dort beschrieben.
+
+## 7. Verfügbarkeit des Dienstes
+
+Der Dienst wird „wie besehen“ und „wie verfügbar“ bereitgestellt. Wir garantieren nicht, dass er unterbrechungsfrei, sicher oder fehlerfrei ist, und können Funktionen jederzeit ändern, aussetzen oder einstellen.
+
+## 8. Haftungsausschluss und Haftungsbeschränkung
+
+Soweit gesetzlich zulässig, wird der Dienst ohne jegliche Gewährleistung bereitgestellt, und wir haften nicht für indirekte, zufällige oder Folgeschäden oder für Ungenauigkeiten der Übersetzung. Nichts in diesen Bedingungen beschränkt eine Haftung, die nach geltendem Recht nicht beschränkt werden kann, einschließlich Ihrer gesetzlichen Rechte als Verbraucher.
+
+## 9. Beendigung
+
+Sie können die Nutzung des Dienstes jederzeit beenden und Ihr Konto löschen. Wir können Ihren Zugang sperren oder beenden, wenn Sie gegen diese Bedingungen verstoßen. Bestimmungen, die ihrer Natur nach die Beendigung überdauern sollen, bleiben in Kraft.
+
+## 10. Änderungen dieser Bedingungen
+
+Wir können diese Bedingungen von Zeit zu Zeit aktualisieren. Bei wesentlichen Änderungen aktualisieren wir Version und Datum und bitten Sie gegebenenfalls, die aktualisierten Bedingungen zu akzeptieren, bevor Sie den Dienst weiter nutzen.
+
+## 11. Kontakt
+
+Fragen zu diesen Bedingungen? Kontaktieren Sie uns unter support@voxtranslate.app.' FROM legal_pages WHERE slug = 'terms'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'pt', 'Termos de Serviço', '> ⚠️ **Rascunho não vinculativo — não constitui aconselhamento jurídico.** Reveja com um advogado qualificado antes de confiar neste documento.
+
+Bem-vindo ao VoxTranslate ("o Serviço"), uma aplicação de videochamadas traduzidas em tempo real. Estes Termos de Serviço ("Termos") regem o seu acesso e uso do Serviço. Ao criar uma conta, iniciar sessão ou usar o Serviço de qualquer outra forma, você aceita estes Termos. Se não concordar, não use o Serviço.
+
+## 1. Elegibilidade
+
+Você deve ter pelo menos 18 anos para usar o Serviço. Ao usá-lo, declara que tem 18 anos ou mais e capacidade legal para aceitar estes Termos. O Serviço não se destina a menores e não recolhemos conscientemente dados pessoais de menores de 18 anos.
+
+## 2. Contas
+
+Algumas funcionalidades exigem uma conta, criada ao iniciar sessão com o Google. Você é responsável pela atividade realizada na sua conta e por manter as suas credenciais seguras. Onde permitido, pode usar o Serviço como convidado; o acesso de convidado pode ser limitado (por exemplo, por um limite de tempo ou apenas a salas privadas).
+
+## 3. Uso aceitável
+
+O seu uso do Serviço está sujeito à nossa Política de Uso Aceitável, que faz parte destes Termos. Em resumo: não use o Serviço para assediar, abusar, ameaçar ou prejudicar outras pessoas; não transmita conteúdo ilegal, de ódio ou de exploração sexual; e não tente interromper ou comprometer o Serviço.
+
+## 4. Créditos, faturação e reembolsos
+
+- As funcionalidades pagas são medidas em créditos, comprados através do nosso processador de pagamentos (Stripe) e descontados à medida que você usa funcionalidades medidas, como o tempo de fala transcrito e traduzido.
+- Os preços e o conteúdo dos pacotes são mostrados no momento da compra. Os créditos não têm valor monetário, não são transferíveis e — salvo quando exigido por lei — não são reembolsáveis depois de consumidos.
+- Você é responsável por quaisquer impostos associados às suas compras, salvo indicação em contrário no momento do pagamento.
+
+## 5. Conteúdo e moderação
+
+Você é o único responsável pelo áudio, vídeo e texto que transmite. Para manter o Serviço seguro, aplicamos filtragem automática de conteúdo à fala transcrita e ao chat, e disponibilizamos ferramentas para denunciar e bloquear participantes. Podemos suspender ou encerrar contas, remover conteúdo ou restringir o acesso quando acreditarmos razoavelmente que estes Termos ou a Política de Uso Aceitável foram violados.
+
+## 6. Privacidade
+
+A nossa Política de Privacidade explica que dados tratamos e porquê. Ao usar o Serviço, você reconhece que o áudio é processado em tempo real para fornecer transcrição e tradução, conforme aí descrito.
+
+## 7. Disponibilidade do Serviço
+
+O Serviço é fornecido "tal como está" e "conforme disponível". Não garantimos que será ininterrupto, seguro ou isento de erros, e podemos modificar, suspender ou descontinuar funcionalidades a qualquer momento.
+
+## 8. Isenções e limitação de responsabilidade
+
+Na máxima medida permitida por lei, o Serviço é fornecido sem garantias de qualquer tipo, e não somos responsáveis por danos indiretos, incidentais ou consequentes, nem por imprecisões de tradução. Nada nestes Termos limita a responsabilidade que não possa ser limitada pela lei aplicável, incluindo os seus direitos legais como consumidor.
+
+## 9. Rescisão
+
+Você pode deixar de usar o Serviço e eliminar a sua conta a qualquer momento. Podemos suspender ou encerrar o seu acesso se violar estes Termos. As disposições que, pela sua natureza, devam sobreviver à rescisão permanecerão em vigor.
+
+## 10. Alterações a estes Termos
+
+Podemos atualizar estes Termos periodicamente. Quando fizermos alterações substanciais, atualizaremos a versão e a data e, quando apropriado, pediremos que aceite os Termos atualizados antes de continuar a usar o Serviço.
+
+## 11. Contacto
+
+Dúvidas sobre estes Termos? Contacte-nos em support@voxtranslate.app.' FROM legal_pages WHERE slug = 'terms'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'ja', '利用規約', '> ⚠️ **本書はドラフトのテンプレートであり、法的助言ではありません。** 依拠する前に、資格を有する弁護士の確認を受けてください。
+
+VoxTranslate（以下「本サービス」）へようこそ。本サービスはリアルタイム翻訳付きのビデオ通話アプリケーションです。本利用規約（以下「本規約」）は、本サービスへのアクセスおよび利用に適用されます。アカウントの作成、サインイン、またはその他の方法で本サービスを利用することにより、お客様は本規約に同意したものとみなされます。同意いただけない場合は、本サービスを利用しないでください。
+
+## 1. 利用資格
+
+本サービスを利用するには18歳以上である必要があります。本サービスを利用することにより、お客様は18歳以上であり、本規約を締結する法的能力を有することを表明したものとみなされます。本サービスは児童を対象としておらず、当社は18歳未満の方の個人データを故意に収集しません。
+
+## 2. アカウント
+
+一部の機能の利用にはアカウントが必要で、Googleでサインインすることで作成します。お客様は、自身のアカウントでの活動と認証情報の安全な管理に責任を負います。許可されている場合、ゲストとして本サービスを利用できますが、ゲストアクセスには制限（たとえば利用時間の上限やプライベートルームのみの利用など）が課される場合があります。
+
+## 3. 利用規定
+
+本サービスの利用には、本規約の一部を構成する利用規定（Acceptable Use Policy）が適用されます。要約すると：本サービスを使って他者への嫌がらせ、虐待、脅迫、加害を行わないこと。違法なコンテンツ、ヘイトコンテンツ、性的搾取コンテンツを送信しないこと。本サービスの妨害や侵害を試みないこと。
+
+## 4. クレジット、請求、返金
+
+- 有料機能はクレジット単位で計測されます。クレジットは決済代行業者（Stripe）を通じて購入し、文字起こし・翻訳された発話時間などの従量制機能の利用に応じて消費されます。
+- 価格とパッケージの内容は購入時に表示されます。クレジットに換金価値はなく、譲渡もできず、法律で義務付けられている場合を除き、消費後の返金はできません。
+- 購入に関連する税金は、決済時に別段の記載がない限り、お客様の負担となります。
+
+## 5. コンテンツとモデレーション
+
+お客様が送信する音声・映像・テキストについては、お客様が単独で責任を負います。本サービスの安全を保つため、当社は文字起こしされた発話とチャットに自動コンテンツフィルタリングを適用し、参加者を通報・ブロックするためのツールを提供します。本規約または利用規定に違反したと合理的に判断した場合、当社はアカウントの停止または解約、コンテンツの削除、アクセスの制限を行うことがあります。
+
+## 6. プライバシー
+
+当社のプライバシーポリシーは、当社がどのようなデータをなぜ処理するかを説明しています。本サービスを利用することにより、お客様は、そこに記載のとおり、文字起こしと翻訳を提供するために音声がリアルタイムで処理されることを了承したものとみなされます。
+
+## 7. サービスの可用性
+
+本サービスは「現状有姿」かつ「提供可能な範囲」で提供されます。中断やエラーがないこと、安全であることは保証されず、当社はいつでも機能を変更、停止、終了することがあります。
+
+## 8. 免責事項と責任の制限
+
+法律で認められる最大限の範囲において、本サービスはいかなる保証もなく提供され、当社は間接損害、付随的損害、結果的損害、または翻訳の不正確さについて責任を負いません。本規約のいかなる規定も、消費者としての法定の権利を含め、適用法上制限できない責任を制限するものではありません。
+
+## 9. 解約
+
+お客様はいつでも本サービスの利用をやめ、アカウントを削除できます。本規約に違反した場合、当社はお客様のアクセスを停止または終了することがあります。その性質上、解約後も存続すべき条項は存続します。
+
+## 10. 本規約の変更
+
+当社は本規約を随時更新することがあります。重要な変更を行う場合は、バージョンと日付を更新し、必要に応じて、本サービスの利用を継続する前に更新後の規約への同意をお願いします。
+
+## 11. お問い合わせ
+
+本規約に関するご質問は support@voxtranslate.app までご連絡ください。' FROM legal_pages WHERE slug = 'terms'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'zh', '服务条款', '> ⚠️ **本文为草稿模板，不构成法律意见。** 在依赖本文之前，请先经合格律师审阅。
+
+欢迎使用 VoxTranslate（以下简称“本服务”），一款实时翻译视频通话应用。本服务条款（以下简称“本条款”）约束您对本服务的访问和使用。创建账户、登录或以其他方式使用本服务，即表示您同意本条款。如果您不同意，请勿使用本服务。
+
+## 1. 使用资格
+
+您必须年满 18 周岁才能使用本服务。使用本服务即表示您声明自己已年满 18 周岁，并具有订立本条款的法律行为能力。本服务不面向儿童，我们不会有意收集 18 周岁以下人士的个人数据。
+
+## 2. 账户
+
+部分功能需要账户，您可以通过 Google 登录创建账户。您应对账户下的活动负责，并妥善保管您的凭据。在允许的情况下，您可以以访客身份使用本服务；访客访问可能受到限制（例如时间上限或仅限私人房间）。
+
+## 3. 可接受使用
+
+您对本服务的使用须遵守我们的《可接受使用政策》，该政策构成本条款的一部分。简而言之：不得使用本服务骚扰、虐待、威胁或伤害他人；不得传输非法、仇恨或性剥削内容；不得试图破坏或损害本服务。
+
+## 4. 积分、计费与退款
+
+- 付费功能按积分计量。积分通过我们的支付服务商（Stripe）购买，并在您使用计量功能（如转写和翻译的通话时长）时扣除。
+- 价格和套餐内容在购买时展示。积分不具有现金价值、不可转让，且除法律要求外，一经消费不予退款。
+- 除非结账时另有说明，您应自行承担与购买相关的任何税费。
+
+## 5. 内容与审核
+
+您对自己传输的音频、视频和文字承担全部责任。为保障本服务的安全，我们会对转写的语音和聊天内容进行自动内容过滤，并提供举报和屏蔽参与者的工具。当我们有合理理由认为本条款或《可接受使用政策》被违反时，我们可以暂停或终止账户、删除内容或限制访问。
+
+## 6. 隐私
+
+我们的《隐私政策》说明了我们处理哪些数据及其原因。使用本服务即表示您知悉：音频会按其中所述被实时处理，以提供转写和翻译。
+
+## 7. 服务可用性
+
+本服务按“现状”和“可用”基础提供。我们不保证本服务不中断、安全或无错误，并可能随时修改、暂停或停止任何功能。
+
+## 8. 免责声明与责任限制
+
+在法律允许的最大范围内，本服务不附带任何形式的保证，我们不对任何间接、附带或后果性损害或翻译不准确承担责任。本条款的任何内容均不限制依据适用法律不得限制的责任，包括您作为消费者的法定权利。
+
+## 9. 终止
+
+您可以随时停止使用本服务并删除您的账户。如果您违反本条款，我们可以暂停或终止您的访问。依其性质应在终止后继续有效的条款将继续有效。
+
+## 10. 条款变更
+
+我们可能不时更新本条款。如有重大变更，我们将更新版本和日期，并在适当时要求您接受更新后的条款，方可继续使用本服务。
+
+## 11. 联系我们
+
+对本条款有疑问？请联系 support@voxtranslate.app。' FROM legal_pages WHERE slug = 'terms'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
 INSERT INTO legal_pages (slug, version) VALUES ('privacy', '2026-06-10') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Informativa sulla privacy', '> ⚠️ **Bozza non vincolante — non è una consulenza legale.** Da rivedere con un legale qualificato prima di farne affidamento.
@@ -366,6 +621,336 @@ El Servicio es para adultos (18+). No tratamos conscientemente datos de menores.
 
 Podemos actualizar esta Política; revisaremos la versión y la fecha y, para cambios sustanciales, adoptaremos medidas adicionales cuando lo exija la ley.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'fr', 'Politique de confidentialité', '> ⚠️ **Modèle provisoire — ne constitue pas un avis juridique.** Faites-le relire par un avocat qualifié avant de vous y fier.
+
+La présente Politique de confidentialité explique quelles données personnelles VoxTranslate (« nous ») traite lorsque vous utilisez notre service d''appels vidéo traduits en temps réel, pourquoi nous les traitons et quels sont vos droits. Elle est rédigée en tenant compte du Règlement général sur la protection des données (RGPD) de l''UE et de lois similaires.
+
+## 1. Responsable du traitement
+
+VoxTranslate est le responsable du traitement des données personnelles traitées via le Service. Pour toute demande relative à la confidentialité, contactez privacy@voxtranslate.app. *(À remplacer par la dénomination et l''adresse de votre entité juridique enregistrée et — le cas échéant — votre représentant UE/Royaume-Uni et votre délégué à la protection des données.)*
+
+## 2. Quelles données nous traitons
+
+- **Données de compte** — lorsque vous vous connectez avec Google, nous recevons votre nom, votre adresse e-mail et l''URL de votre photo de profil.
+- **Audio (transitoire)** — pendant que vous parlez, l''audio de votre micro est transmis en streaming à notre fournisseur de reconnaissance vocale pour générer une transcription en direct. Nous ne conservons pas l''audio brut.
+- **Transcriptions et traductions (transitoires)** — générées pour afficher les sous-titres et le texte traduit aux autres participants. Relayées en temps réel et non conservées après l''appel, sauf lorsqu''elles sont incluses dans un signalement d''abus.
+- **Messages de chat** — relayés et traduits entre les participants pendant un appel.
+- **Données d''utilisation et de facturation** — solde de crédits, transactions et temps de parole par session, utilisés pour mesurer et facturer le Service.
+- **Données de sécurité** — signalements d''abus que vous soumettez ou qui vous concernent (pouvant inclure un court extrait de transcription) et les enregistrements de modération/bannissement.
+- **Données techniques** — métadonnées de connexion de base nécessaires au fonctionnement du service en temps réel et à sa sécurité.
+
+La vidéo et l''audio entre participants transitent en pair-à-pair (WebRTC) et ne passent pas par nos serveurs ni n''y sont enregistrés. Notre serveur gère la signalisation, le flux de reconnaissance vocale en direct, la traduction et le relais du chat.
+
+## 3. Pourquoi nous les traitons et nos bases juridiques
+
+- Fournir l''appel, la transcription et la traduction — exécution d''un contrat.
+- Traiter l''audio nécessaire aux sous-titres/à la traduction en direct — contrat ; et votre consentement donné à l''inscription.
+- Mesure, facturation et prévention de la fraude — contrat ; intérêts légitimes.
+- Sécurité, modération et traitement des signalements d''abus — intérêts légitimes à un service sûr ; obligation légale.
+- Conservation des enregistrements de transactions exigés par la loi — obligation légale.
+
+## 4. Prestataires de services (sous-traitants / sous-traitants ultérieurs)
+
+Nous partageons des données personnelles avec les prestataires ci-dessous, exclusivement pour faire fonctionner le Service. Certains sont situés en dehors de l''EEE ; dans ce cas, nous nous appuyons sur des garanties appropriées telles que les Clauses contractuelles types de l''UE.
+
+- **Google** — connexion (OAuth) : nom, e-mail, photo de profil.
+- **Deepgram** — reconnaissance vocale : audio en streaming (transitoire).
+- **Groq** — traduction automatique : texte de la transcription (transitoire).
+- **Stripe** — traitement des paiements : informations de facturation et de paiement.
+- **Supabase** — base de données / stockage des comptes et de la facturation : données de compte, d''utilisation, de facturation et de sécurité.
+- **Vercel** — hébergement du frontend : données techniques/de connexion.
+- **Railway** — hébergement du backend : données techniques/de connexion.
+
+*(Vérifiez le rôle, la région et les garanties actuels de chaque prestataire avant publication et tenez cette liste à jour.)*
+
+## 5. Durée de conservation des données
+
+- **Audio, transcriptions et traductions :** traités en temps réel et non conservés après l''appel.
+- **Données de compte :** conservées tant que votre compte existe ; supprimées lorsque vous supprimez votre compte.
+- **Enregistrements de facturation/transactions :** conservés conformément aux lois fiscales et comptables applicables.
+- **Signalements d''abus et enregistrements de bannissement :** conservés aussi longtemps que nécessaire pour assurer la sécurité du Service et respecter les obligations légales.
+
+## 6. Vos droits
+
+Sous réserve du droit applicable, vous avez le droit d''accéder à vos données, de les rectifier et de les effacer ; de les recevoir dans un format portable ; de limiter certains traitements ou de vous y opposer ; de retirer votre consentement à tout moment ; et d''introduire une réclamation auprès de votre autorité de protection des données. Vous pouvez exercer l''accès/la portabilité avec **Télécharger mes données** et l''effacement avec **Supprimer mon compte** dans le panneau Confidentialité et données de l''application, ou écrire à privacy@voxtranslate.app.
+
+## 7. Sécurité
+
+Nous utilisons des mesures conformes aux standards du secteur pour protéger les données personnelles, notamment le chiffrement en transit et des médias en pair-à-pair qui ne transitent pas par nos serveurs. Aucune méthode de transmission ou de stockage n''est toutefois totalement sûre, et nous ne pouvons garantir une sécurité absolue.
+
+## 8. Enfants
+
+Le Service est destiné aux adultes (18+). Nous ne traitons pas sciemment de données d''enfants. Si vous pensez qu''un enfant nous a fourni des données, contactez-nous et nous les supprimerons.
+
+## 9. Modifications
+
+Nous pouvons mettre à jour cette Politique ; nous réviserons la version et la date et, pour les modifications substantielles, prendrons des mesures supplémentaires lorsque la loi l''exige.' FROM legal_pages WHERE slug = 'privacy'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'de', 'Datenschutzerklärung', '> ⚠️ **Unverbindlicher Entwurf — keine Rechtsberatung.** Lassen Sie ihn von einer qualifizierten Anwältin oder einem qualifizierten Anwalt prüfen, bevor Sie sich darauf verlassen.
+
+Diese Datenschutzerklärung erläutert, welche personenbezogenen Daten VoxTranslate („wir“) verarbeitet, wenn Sie unseren Dienst für Videoanrufe mit Echtzeit-Übersetzung nutzen, warum wir sie verarbeiten und welche Rechte Sie haben. Sie ist mit Blick auf die EU-Datenschutz-Grundverordnung (DSGVO) und ähnliche Gesetze verfasst.
+
+## 1. Wer ist der Verantwortliche
+
+VoxTranslate ist der Verantwortliche für die über den Dienst verarbeiteten personenbezogenen Daten. Für alle Datenschutzanfragen wenden Sie sich an privacy@voxtranslate.app. *(Ersetzen Sie dies durch den Namen und die Anschrift Ihrer eingetragenen juristischen Person sowie — falls zutreffend — Ihren EU/UK-Vertreter und Datenschutzbeauftragten.)*
+
+## 2. Welche Daten wir verarbeiten
+
+- **Kontodaten** — wenn Sie sich mit Google anmelden, erhalten wir Ihren Namen, Ihre E-Mail-Adresse und die URL Ihres Profilbilds.
+- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an unseren Speech-to-Text-Anbieter gestreamt, um ein Live-Transkript zu erzeugen. Rohes Audio speichern wir nicht.
+- **Transkripte und Übersetzungen (flüchtig)** — erzeugt, um anderen Teilnehmern Untertitel und übersetzten Text anzuzeigen. Sie werden in Echtzeit weitergeleitet und nach dem Anruf nicht aufbewahrt, außer wenn sie in einer Missbrauchsmeldung enthalten sind.
+- **Chat-Nachrichten** — während eines Anrufs zwischen den Teilnehmern weitergeleitet und übersetzt.
+- **Nutzungs- und Abrechnungsdaten** — Guthabenstand, Transaktionen und Sprechzeit pro Sitzung zur Messung und Abrechnung des Dienstes.
+- **Sicherheitsdaten** — Missbrauchsmeldungen, die Sie einreichen oder die über Sie eingereicht werden (ggf. mit einem kurzen Transkriptauszug), sowie Moderations-/Sperrdatensätze.
+- **Technische Daten** — grundlegende Verbindungsmetadaten, die für den Betrieb des Echtzeitdienstes und seine Sicherheit erforderlich sind.
+
+Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Unser Server übernimmt das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung und die Chat-Weiterleitung.
+
+## 3. Warum wir sie verarbeiten und unsere Rechtsgrundlagen
+
+- Bereitstellung von Anruf, Transkription und Übersetzung — Vertragserfüllung.
+- Verarbeitung des für Live-Untertitel/Übersetzung erforderlichen Audios — Vertrag; und Ihre bei der Registrierung erteilte Einwilligung.
+- Messung, Abrechnung und Betrugsprävention — Vertrag; berechtigte Interessen.
+- Sicherheit, Moderation und Bearbeitung von Missbrauchsmeldungen — berechtigte Interessen an einem sicheren Dienst; rechtliche Verpflichtung.
+- Aufbewahrung gesetzlich vorgeschriebener Transaktionsaufzeichnungen — rechtliche Verpflichtung.
+
+## 4. Dienstleister (Auftragsverarbeiter / Unterauftragsverarbeiter)
+
+Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die unten genannten Anbieter weiter. Einige befinden sich außerhalb des EWR; in diesem Fall stützen wir uns auf geeignete Garantien wie die EU-Standardvertragsklauseln.
+
+- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild.
+- **Deepgram** — Speech-to-Text: gestreamtes Audio (flüchtig).
+- **Groq** — maschinelle Übersetzung: Transkripttext (flüchtig).
+- **Stripe** — Zahlungsabwicklung: Rechnungs- und Zahlungsdaten.
+- **Supabase** — Datenbank / Speicherung von Konto- und Abrechnungsdaten: Konto-, Nutzungs-, Abrechnungs- und Sicherheitsdaten.
+- **Vercel** — Frontend-Hosting: technische/Verbindungsdaten.
+- **Railway** — Backend-Hosting: technische/Verbindungsdaten.
+
+*(Überprüfen Sie vor der Veröffentlichung die aktuelle Rolle, Region und Garantien jedes Anbieters und halten Sie diese Liste aktuell.)*
+
+## 5. Wie lange wir Daten aufbewahren
+
+- **Audio, Transkripte und Übersetzungen:** in Echtzeit verarbeitet und nach dem Anruf nicht gespeichert.
+- **Kontodaten:** aufbewahrt, solange Ihr Konto besteht; gelöscht, wenn Sie Ihr Konto löschen.
+- **Abrechnungs-/Transaktionsaufzeichnungen:** aufbewahrt, soweit die geltenden Steuer- und Buchführungsgesetze dies verlangen.
+- **Missbrauchsmeldungen und Sperrdatensätze:** aufbewahrt, solange dies erforderlich ist, um den Dienst sicher zu halten und rechtliche Verpflichtungen zu erfüllen.
+
+## 6. Ihre Rechte
+
+Vorbehaltlich des geltenden Rechts haben Sie das Recht, auf Ihre Daten zuzugreifen, sie zu berichtigen und zu löschen; sie in einem übertragbaren Format zu erhalten; bestimmte Verarbeitungen einzuschränken oder ihnen zu widersprechen; Ihre Einwilligung jederzeit zu widerrufen; und eine Beschwerde bei Ihrer Datenschutzaufsichtsbehörde einzureichen. Zugriff/Übertragbarkeit können Sie über **Meine Daten herunterladen** und die Löschung über **Mein Konto löschen** im Bereich „Datenschutz & Daten“ in der App ausüben, oder schreiben Sie an privacy@voxtranslate.app.
+
+## 7. Sicherheit
+
+Wir setzen branchenübliche Maßnahmen zum Schutz personenbezogener Daten ein, einschließlich Verschlüsselung bei der Übertragung und Peer-to-Peer-Medien, die nicht über unsere Server laufen. Keine Übertragungs- oder Speichermethode ist jedoch vollkommen sicher, und wir können keine absolute Sicherheit garantieren.
+
+## 8. Kinder
+
+Der Dienst ist für Erwachsene (18+) bestimmt. Wir verarbeiten wissentlich keine Daten von Kindern. Wenn Sie glauben, dass ein Kind uns Daten übermittelt hat, kontaktieren Sie uns, und wir werden sie löschen.
+
+## 9. Änderungen
+
+Wir können diese Erklärung aktualisieren; wir werden Version und Datum anpassen und bei wesentlichen Änderungen zusätzliche Schritte unternehmen, soweit gesetzlich erforderlich.' FROM legal_pages WHERE slug = 'privacy'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'pt', 'Política de Privacidade', '> ⚠️ **Rascunho não vinculativo — não constitui aconselhamento jurídico.** Reveja com um advogado qualificado antes de confiar neste documento.
+
+Esta Política de Privacidade explica que dados pessoais a VoxTranslate ("nós") trata quando você usa o nosso serviço de videochamadas traduzidas em tempo real, por que os tratamos e que direitos você tem. Foi redigida tendo em conta o Regulamento Geral sobre a Proteção de Dados (RGPD) da UE e leis semelhantes.
+
+## 1. Responsável pelo tratamento
+
+A VoxTranslate é a responsável pelo tratamento dos dados pessoais tratados através do Serviço. Para qualquer pedido de privacidade, contacte privacy@voxtranslate.app. *(Substitua pelo nome e endereço da sua entidade legal registada e — se aplicável — pelo seu representante na UE/Reino Unido e encarregado de proteção de dados.)*
+
+## 2. Que dados tratamos
+
+- **Dados da conta** — ao iniciar sessão com o Google, recebemos o seu nome, endereço de e-mail e o URL da foto de perfil.
+- **Áudio (transitório)** — enquanto você fala, o áudio do microfone é transmitido ao nosso fornecedor de speech-to-text para gerar uma transcrição ao vivo. Não armazenamos o áudio bruto.
+- **Transcrições e traduções (transitórias)** — geradas para mostrar legendas e texto traduzido aos outros participantes. Transmitidas em tempo real e não conservadas após a chamada, exceto quando incluídas numa denúncia de abuso.
+- **Mensagens de chat** — transmitidas e traduzidas entre os participantes durante uma chamada.
+- **Dados de uso e faturação** — saldo de créditos, transações e tempo de fala por sessão, usados para medir e faturar o Serviço.
+- **Dados de segurança** — denúncias de abuso que você envia ou que são enviadas sobre você (podendo incluir um breve excerto da transcrição) e registos de moderação/banimento.
+- **Dados técnicos** — metadados de ligação básicos necessários para operar o serviço em tempo real e mantê-lo seguro.
+
+O vídeo e o áudio entre participantes são enviados ponto a ponto (WebRTC) e não passam pelos nossos servidores nem são gravados por eles. O nosso servidor trata da sinalização, do fluxo de speech-to-text ao vivo, da tradução e do relay do chat.
+
+## 3. Por que os tratamos e bases jurídicas
+
+- Fornecer a chamada, a transcrição e a tradução — execução de um contrato.
+- Tratar o áudio necessário para legendas/tradução ao vivo — contrato; e o seu consentimento dado no registo.
+- Medição, faturação e prevenção de fraude — contrato; interesses legítimos.
+- Segurança, moderação e gestão de denúncias de abuso — interesses legítimos num serviço seguro; obrigação legal.
+- Conservação dos registos de transações exigidos por lei — obrigação legal.
+
+## 4. Fornecedores de serviços (subcontratantes / subcontratantes ulteriores)
+
+Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o Serviço. Alguns estão fora do EEE; nesse caso, baseamo-nos em garantias adequadas, como as Cláusulas Contratuais-Tipo da UE.
+
+- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil.
+- **Deepgram** — speech-to-text: áudio transmitido (transitório).
+- **Groq** — tradução automática: texto da transcrição (transitório).
+- **Stripe** — processamento de pagamentos: dados de faturação e pagamento.
+- **Supabase** — base de dados / armazenamento de conta e faturação: dados de conta, uso, faturação e segurança.
+- **Vercel** — alojamento do frontend: dados técnicos/de ligação.
+- **Railway** — alojamento do backend: dados técnicos/de ligação.
+
+*(Confirme o papel, a região e as garantias atuais de cada fornecedor antes de publicar e mantenha esta lista atualizada.)*
+
+## 5. Por quanto tempo conservamos os dados
+
+- **Áudio, transcrições e traduções:** processados em tempo real e não armazenados após a chamada.
+- **Dados da conta:** mantidos enquanto a sua conta existir; eliminados quando você elimina a conta.
+- **Registos de faturação/transações:** conservados conforme exigido pelas leis fiscais e contabilísticas aplicáveis.
+- **Denúncias de abuso e registos de banimento:** conservados pelo tempo necessário para manter o Serviço seguro e cumprir obrigações legais.
+
+## 6. Os seus direitos
+
+Sujeito à lei aplicável, você tem o direito de aceder, retificar e apagar os seus dados; de recebê-los num formato portável; de limitar ou opor-se a determinados tratamentos; de retirar o consentimento a qualquer momento; e de apresentar uma reclamação à sua autoridade de proteção de dados. Pode exercer o acesso/portabilidade com **Transferir os meus dados** e o apagamento com **Eliminar a minha conta** no painel Privacidade e dados da aplicação, ou escrever para privacy@voxtranslate.app.
+
+## 7. Segurança
+
+Usamos medidas padrão do setor para proteger os dados pessoais, incluindo encriptação em trânsito e mídia ponto a ponto que não passa pelos nossos servidores. No entanto, nenhum método de transmissão ou armazenamento é completamente seguro, e não podemos garantir segurança absoluta.
+
+## 8. Menores
+
+O Serviço destina-se a adultos (18+). Não tratamos conscientemente dados de menores. Se acredita que um menor nos forneceu dados, contacte-nos e iremos eliminá-los.
+
+## 9. Alterações
+
+Podemos atualizar esta Política; revisaremos a versão e a data e, para alterações substanciais, tomaremos medidas adicionais quando exigido por lei.' FROM legal_pages WHERE slug = 'privacy'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'ja', 'プライバシーポリシー', '> ⚠️ **本書はドラフトのテンプレートであり、法的助言ではありません。** 依拠する前に、資格を有する弁護士の確認を受けてください。
+
+本プライバシーポリシーは、リアルタイム翻訳ビデオ通話サービスのご利用にあたり、VoxTranslate（以下「当社」）がどのような個人データを処理するのか、なぜ処理するのか、そしてお客様にどのような権利があるのかを説明するものです。EU一般データ保護規則（GDPR）および類似の法律を考慮して作成されています。
+
+## 1. データ管理者
+
+VoxTranslateは、本サービスを通じて処理される個人データの管理者です。プライバシーに関するご要望は privacy@voxtranslate.app までご連絡ください。*（登録済みの法人名、住所、および該当する場合はEU/UK代理人とデータ保護責任者に置き換えてください。）*
+
+## 2. 処理するデータ
+
+- **アカウントデータ** — Googleでサインインすると、お名前、メールアドレス、プロフィール画像のURLを受け取ります。
+- **音声（一時的）** — 発話中、マイクの音声はライブ文字起こしを生成するために音声認識プロバイダーへストリーミングされます。生の音声は保存しません。
+- **文字起こしと翻訳（一時的）** — 他の参加者に字幕と翻訳テキストを表示するために生成されます。リアルタイムで中継され、不正利用の通報に含まれる場合を除き、通話後は保持されません。
+- **チャットメッセージ** — 通話中に参加者間で中継・翻訳されます。
+- **利用・課金データ** — クレジット残高、取引、セッションごとの発話時間。本サービスの計測と請求に使用されます。
+- **安全データ** — お客様が送信した、またはお客様について送信された不正利用の通報（短い文字起こしの抜粋を含む場合があります）、およびモデレーション/BAN記録。
+- **技術データ** — リアルタイムサービスの運用と安全確保に必要な基本的な接続メタデータ。
+
+参加者間の映像と音声はピアツーピア（WebRTC）で送信され、当社のサーバーを経由せず、記録もされません。当社のサーバーは、シグナリング、ライブ音声認識ストリーム、翻訳、チャット中継を担当します。
+
+## 3. 処理の目的と法的根拠
+
+- 通話、文字起こし、翻訳の提供 — 契約の履行。
+- ライブ字幕/翻訳に必要な音声の処理 — 契約、および登録時に与えられた同意。
+- 計測、課金、不正防止 — 契約、正当な利益。
+- 安全、モデレーション、不正利用通報への対応 — 安全なサービスへの正当な利益、法的義務。
+- 法律で義務付けられた取引記録の保持 — 法的義務。
+
+## 4. サービスプロバイダー（処理者／復処理者）
+
+当社は、本サービスの運用のためにのみ、以下のプロバイダーと個人データを共有します。一部はEEA域外に所在しており、その場合はEU標準契約条項などの適切な保護措置に依拠します。
+
+- **Google** — サインイン（OAuth）：氏名、メール、プロフィール画像。
+- **Deepgram** — 音声認識：ストリーミング音声（一時的）。
+- **Groq** — 機械翻訳：文字起こしテキスト（一時的）。
+- **Stripe** — 決済処理：請求情報、決済データ。
+- **Supabase** — データベース／アカウント・課金データの保存：アカウント、利用、課金、安全データ。
+- **Vercel** — フロントエンドのホスティング：技術/接続データ。
+- **Railway** — バックエンドのホスティング：技術/接続データ。
+
+*（公開前に各プロバイダーの現在の役割、地域、保護措置を確認し、このリストを最新の状態に保ってください。）*
+
+## 5. データの保持期間
+
+- **音声、文字起こし、翻訳：** リアルタイムで処理され、通話後は保存されません。
+- **アカウントデータ：** アカウントが存在する間保持され、アカウントを削除すると削除されます。
+- **課金/取引記録：** 適用される税法および会計法の要求に従って保持されます。
+- **不正利用の通報とBAN記録：** 本サービスの安全を保ち、法的義務を遵守するために必要な期間保持されます。
+
+## 6. お客様の権利
+
+適用法に従い、お客様にはデータへのアクセス、訂正、消去の権利、ポータブルな形式で受け取る権利、特定の処理の制限や異議申し立ての権利、いつでも同意を撤回する権利、および所轄のデータ保護当局に苦情を申し立てる権利があります。アプリ内の「プライバシーとデータ」パネルで、アクセス/ポータビリティは**自分のデータをダウンロード**、消去は**アカウントを削除**から行使できます。または privacy@voxtranslate.app までメールでご連絡ください。
+
+## 7. セキュリティ
+
+当社は、転送時の暗号化や、当社サーバーを経由しないピアツーピアのメディアなど、業界標準の対策で個人データを保護しています。ただし、完全に安全な送信・保存方法は存在せず、絶対的な安全性を保証することはできません。
+
+## 8. 児童
+
+本サービスは成人（18歳以上）向けです。当社は児童のデータを故意に処理しません。児童が当社にデータを提供したと思われる場合は、ご連絡ください。削除いたします。
+
+## 9. 変更
+
+当社は本ポリシーを更新することがあります。その際はバージョンと日付を改訂し、重要な変更については、法律で要求される場合に追加の措置を講じます。' FROM legal_pages WHERE slug = 'privacy'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'zh', '隐私政策', '> ⚠️ **本文为草稿模板，不构成法律意见。** 在依赖本文之前，请先经合格律师审阅。
+
+本隐私政策说明在您使用我们的实时翻译视频通话服务时，VoxTranslate（以下简称“我们”）处理哪些个人数据、处理原因以及您享有的权利。本政策的撰写参考了欧盟《通用数据保护条例》（GDPR）及类似法律。
+
+## 1. 数据控制者
+
+VoxTranslate 是通过本服务处理的个人数据的控制者。如有任何隐私请求，请联系 privacy@voxtranslate.app。*（请替换为您注册的法律实体名称、地址，以及（如适用）您的欧盟/英国代表和数据保护官。）*
+
+## 2. 我们处理哪些数据
+
+- **账户数据** — 当您使用 Google 登录时，我们会收到您的姓名、电子邮件地址和头像 URL。
+- **音频（瞬时）** — 您说话时，麦克风音频会流式传输到我们的语音转文字服务商以生成实时转写。我们不存储原始音频。
+- **转写与翻译（瞬时）** — 为向其他参与者显示字幕和翻译文本而生成。实时转发，通话结束后不保留，除非包含在滥用举报中。
+- **聊天消息** — 在通话期间在参与者之间转发和翻译。
+- **使用与计费数据** — 积分余额、交易记录和每次会话的发言时长，用于对本服务计量和计费。
+- **安全数据** — 您提交的或针对您提交的滥用举报（可能包含简短的转写摘录），以及审核/封禁记录。
+- **技术数据** — 运行实时服务并保障其安全所需的基本连接元数据。
+
+参与者之间的视频和音频通过点对点（WebRTC）传输，不经过我们的服务器，也不会被记录。我们的服务器负责信令、实时语音转文字流、翻译和聊天转发。
+
+## 3. 处理原因与法律依据
+
+- 提供通话、转写和翻译 — 履行合同。
+- 处理实时字幕/翻译所需的音频 — 合同；以及您在注册时给予的同意。
+- 计量、计费和欺诈防范 — 合同；正当利益。
+- 安全、审核和处理滥用举报 — 维护服务安全的正当利益；法律义务。
+- 保存法律要求的交易记录 — 法律义务。
+
+## 4. 服务提供商（处理者/再处理者）
+
+我们仅为运营本服务而与以下提供商共享个人数据。其中一些位于欧洲经济区之外；在这种情况下，我们依赖欧盟标准合同条款等适当保障措施。
+
+- **Google** — 登录（OAuth）：姓名、邮箱、头像。
+- **Deepgram** — 语音转文字：流式音频（瞬时）。
+- **Groq** — 机器翻译：转写文本（瞬时）。
+- **Stripe** — 支付处理：账单信息、支付数据。
+- **Supabase** — 数据库/账户与计费存储：账户、使用、计费、安全数据。
+- **Vercel** — 前端托管：技术/连接数据。
+- **Railway** — 后端托管：技术/连接数据。
+
+*（发布前请确认各提供商当前的角色、地区和保障措施，并保持此列表为最新。）*
+
+## 5. 数据保留期限
+
+- **音频、转写和翻译：** 实时处理，通话结束后不存储。
+- **账户数据：** 在您的账户存续期间保留；删除账户时即被删除。
+- **计费/交易记录：** 按适用税务和会计法律的要求保留。
+- **滥用举报和封禁记录：** 在维护服务安全和履行法律义务所需的期间内保留。
+
+## 6. 您的权利
+
+在适用法律允许的范围内，您有权访问、更正和删除您的数据；以可携带的格式接收数据；限制或反对某些处理；随时撤回同意；并向您当地的数据保护机构投诉。您可以在应用内的“隐私与数据”面板中，通过**下载我的数据**行使访问/可携带权，通过**删除我的账户**行使删除权，或发送邮件至 privacy@voxtranslate.app。
+
+## 7. 安全
+
+我们采用行业标准措施保护个人数据，包括传输加密以及不经过我们服务器的点对点媒体。然而，没有任何传输或存储方式是完全安全的，我们无法保证绝对安全。
+
+## 8. 儿童
+
+本服务面向成年人（18 岁以上）。我们不会有意处理儿童的数据。如果您认为有儿童向我们提供了数据，请联系我们，我们将予以删除。
+
+## 9. 变更
+
+我们可能会更新本政策；届时将修订版本和日期，对于重大变更，将在法律要求时采取额外措施。' FROM legal_pages WHERE slug = 'privacy'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
 INSERT INTO legal_pages (slug, version) VALUES ('acceptable-use', '2026-06-10') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Politica di uso consentito', '> ⚠️ **Bozza non vincolante — non è una consulenza legale.** Da rivedere con un legale qualificato prima di farne affidamento.
@@ -486,5 +1071,205 @@ Cada participante puede ser denunciado o bloqueado dentro de una llamada. Usamos
 ## 6. Contacto
 
 Para denunciar abusos o consultar sobre esta política, usa las herramientas de denuncia de la app o escribe a abuse@voxtranslate.app.' FROM legal_pages WHERE slug = 'acceptable-use'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'fr', 'Politique d’usage acceptable', '> ⚠️ **Modèle provisoire — ne constitue pas un avis juridique.** Faites-le relire par un avocat qualifié avant de vous y fier.
+
+La présente Politique d''usage acceptable (« AUP ») définit les règles d''utilisation de VoxTranslate. Elle fait partie de nos Conditions d''utilisation. En utilisant le Service, vous acceptez de respecter cette AUP. En cas de violation, nous pouvons suspendre ou résilier des comptes, supprimer des contenus ou restreindre l''accès.
+
+## 1. Respectez les autres participants
+
+Vous ne pouvez pas utiliser le Service pour :
+
+- harceler, intimider, menacer ou traquer qui que ce soit ;
+- publier ou transmettre des contenus haineux, ou attaquer des personnes en raison de leur race, origine ethnique ou nationale, religion, sexe, genre, orientation sexuelle, handicap ou toute autre caractéristique protégée ;
+- partager des contenus sexuellement explicites ou d''exploitation sexuelle, ou solliciter de tels contenus ;
+- exposer autrui à de la violence explicite ou à des contenus destinés à choquer ou dégoûter.
+
+## 2. Aucune activité illégale ou nuisible
+
+- N''utilisez pas le Service à des fins illicites ni pour faciliter des activités illégales.
+- Ne vous livrez pas à la fraude, aux escroqueries, au phishing ni à l''usurpation d''identité de personnes ou d''organisations.
+- Ne partagez pas de contenus portant atteinte à la propriété intellectuelle ou à la vie privée d''autrui.
+- Aucun contenu exploitant sexuellement ou mettant en danger des mineurs n''est toléré. Nous signalons ces contenus aux autorités compétentes.
+
+## 3. Pas de spam ni d''abus de la plateforme
+
+- N''envoyez pas de spam, de messages non sollicités en masse ni de publicités.
+- Ne tentez pas d''obtenir un accès non autorisé à des comptes, salons, systèmes ou données.
+- Ne sondez pas, ne scannez pas, ne surchargez pas, ne perturbez pas et n''interférez pas de toute autre manière avec le Service ou ses fonctions de sécurité.
+- N''utilisez pas de bots, de scrapers ou d''autres moyens automatisés pour accéder au Service, sauf autorisation expresse.
+
+## 4. Enregistrement et consentement
+
+Respectez la vie privée des autres. N''enregistrez pas, ne capturez pas et ne redistribuez pas les appels, l''audio, la vidéo, les transcriptions ou les traductions sans le consentement des personnes concernées et dans le respect des lois qui vous sont applicables.
+
+## 5. Signalement et application
+
+Chaque participant peut être signalé ou bloqué depuis un appel. Nous utilisons un filtrage automatique de la parole transcrite et du chat pour détecter les contenus graves, et nous examinons les signalements. Selon la gravité, nous pouvons émettre des avertissements, suspendre temporairement ou bannir définitivement des comptes. Les violations graves peuvent être signalées aux forces de l''ordre.
+
+## 6. Contact
+
+Pour signaler un abus ou poser une question sur cette politique, utilisez les outils de signalement de l''application ou écrivez à abuse@voxtranslate.app.' FROM legal_pages WHERE slug = 'acceptable-use'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'de', 'Richtlinie zur akzeptablen Nutzung', '> ⚠️ **Unverbindlicher Entwurf — keine Rechtsberatung.** Lassen Sie ihn von einer qualifizierten Anwältin oder einem qualifizierten Anwalt prüfen, bevor Sie sich darauf verlassen.
+
+Diese Richtlinie zur akzeptablen Nutzung („AUP“) legt die Regeln für die Nutzung von VoxTranslate fest. Sie ist Teil unserer Nutzungsbedingungen. Mit der Nutzung des Dienstes erklären Sie sich einverstanden, diese AUP einzuhalten. Bei Verstößen können wir Konten sperren oder kündigen, Inhalte entfernen oder den Zugang einschränken.
+
+## 1. Respektieren Sie die anderen Teilnehmer
+
+Sie dürfen den Dienst nicht nutzen, um:
+
+- jemanden zu belästigen, zu schikanieren, zu bedrohen, zu stalken oder einzuschüchtern;
+- hasserfüllte Inhalte zu veröffentlichen oder zu übertragen oder Personen aufgrund von Rasse, ethnischer Zugehörigkeit, nationaler Herkunft, Religion, Geschlecht, Geschlechtsidentität, sexueller Orientierung, Behinderung oder eines anderen geschützten Merkmals anzugreifen;
+- sexuell explizite oder sexuell ausbeuterische Inhalte zu teilen oder solche Inhalte anzufordern;
+- andere expliziter Gewalt oder Inhalten auszusetzen, die schockieren oder anwidern sollen.
+
+## 2. Keine illegalen oder schädlichen Aktivitäten
+
+- Nutzen Sie den Dienst nicht für rechtswidrige Zwecke oder zur Erleichterung illegaler Aktivitäten.
+- Begehen Sie keinen Betrug, keine Scams, kein Phishing und geben Sie sich nicht als andere Personen oder Organisationen aus.
+- Teilen Sie keine Inhalte, die geistiges Eigentum oder die Privatsphäre anderer verletzen.
+- Absolut keine Inhalte, die Minderjährige sexuell ausbeuten oder gefährden. Solche Inhalte melden wir den zuständigen Behörden.
+
+## 3. Kein Spam und kein Missbrauch der Plattform
+
+- Versenden Sie keinen Spam, keine unaufgeforderten Massennachrichten und keine Werbung.
+- Versuchen Sie nicht, sich unbefugten Zugang zu Konten, Räumen, Systemen oder Daten zu verschaffen.
+- Sondieren, scannen, überlasten, stören oder beeinträchtigen Sie den Dienst oder seine Sicherheitsfunktionen nicht auf andere Weise.
+- Verwenden Sie keine Bots, Scraper oder andere automatisierte Mittel, um auf den Dienst zuzugreifen, sofern dies nicht ausdrücklich gestattet ist.
+
+## 4. Aufzeichnung und Einwilligung
+
+Respektieren Sie die Privatsphäre anderer. Zeichnen Sie Anrufe, Audio, Video, Transkripte oder Übersetzungen nicht ohne die Einwilligung der Beteiligten auf, erstellen Sie keine Screenshots davon und verbreiten Sie sie nicht weiter — und halten Sie sich dabei an die für Sie geltenden Gesetze.
+
+## 5. Meldung und Durchsetzung
+
+Jeder Teilnehmer kann innerhalb eines Anrufs gemeldet oder blockiert werden. Wir verwenden eine automatisierte Filterung der transkribierten Sprache und des Chats, um schwerwiegende Inhalte zu erkennen, und prüfen Meldungen. Je nach Schweregrad können wir Verwarnungen aussprechen, Konten vorübergehend sperren oder dauerhaft bannen. Schwere Verstöße können den Strafverfolgungsbehörden gemeldet werden.
+
+## 6. Kontakt
+
+Um Missbrauch zu melden oder Fragen zu dieser Richtlinie zu stellen, nutzen Sie die Meldewerkzeuge in der App oder schreiben Sie an abuse@voxtranslate.app.' FROM legal_pages WHERE slug = 'acceptable-use'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'pt', 'Política de Uso Aceitável', '> ⚠️ **Rascunho não vinculativo — não constitui aconselhamento jurídico.** Reveja com um advogado qualificado antes de confiar neste documento.
+
+Esta Política de Uso Aceitável ("AUP") estabelece as regras para usar o VoxTranslate. Faz parte dos nossos Termos de Serviço. Ao usar o Serviço, você concorda em seguir esta AUP. Em caso de violação, podemos suspender ou encerrar contas, remover conteúdo ou restringir o acesso.
+
+## 1. Respeite os outros participantes
+
+Você não pode usar o Serviço para:
+
+- assediar, intimidar, ameaçar ou perseguir qualquer pessoa;
+- publicar ou transmitir conteúdo de ódio, ou atacar pessoas com base em raça, etnia, origem nacional, religião, sexo, género, orientação sexual, deficiência ou qualquer outra característica protegida;
+- partilhar conteúdo sexualmente explícito ou de exploração sexual, ou solicitar esse tipo de conteúdo;
+- expor outras pessoas a violência gráfica ou a conteúdo destinado a chocar ou repugnar.
+
+## 2. Nenhuma atividade ilegal ou prejudicial
+
+- Não use o Serviço para fins ilícitos nem para facilitar atividades ilegais.
+- Não pratique fraude, burlas, phishing nem se faça passar por pessoas ou organizações.
+- Não partilhe conteúdo que viole a propriedade intelectual ou a privacidade de terceiros.
+- Absolutamente nenhum conteúdo que explore sexualmente ou coloque em perigo menores. Denunciamos esse conteúdo às autoridades competentes.
+
+## 3. Nada de spam ou abuso da plataforma
+
+- Não envie spam, mensagens em massa não solicitadas nem publicidade.
+- Não tente obter acesso não autorizado a contas, salas, sistemas ou dados.
+- Não sonde, analise, sobrecarregue, interrompa nem interfira de outra forma com o Serviço ou as suas funcionalidades de segurança.
+- Não use bots, scrapers ou meios automatizados para aceder ao Serviço, salvo quando expressamente permitido.
+
+## 4. Gravação e consentimento
+
+Respeite a privacidade dos outros. Não grave, capture nem redistribua chamadas, áudio, vídeo, transcrições ou traduções sem o consentimento das pessoas envolvidas e conforme exigido pelas leis que se aplicam a você.
+
+## 5. Denúncias e aplicação
+
+Cada participante pode ser denunciado ou bloqueado durante uma chamada. Usamos filtragem automática da fala transcrita e do chat para detetar conteúdo grave, e analisamos as denúncias. Conforme a gravidade, podemos emitir avisos, suspender temporariamente ou banir permanentemente contas. Violações graves podem ser comunicadas às autoridades.
+
+## 6. Contacto
+
+Para denunciar abusos ou esclarecer dúvidas sobre esta política, use as ferramentas de denúncia da aplicação ou escreva para abuse@voxtranslate.app.' FROM legal_pages WHERE slug = 'acceptable-use'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'ja', '利用規定', '> ⚠️ **本書はドラフトのテンプレートであり、法的助言ではありません。** 依拠する前に、資格を有する弁護士の確認を受けてください。
+
+本利用規定（Acceptable Use Policy、以下「本規定」）は、VoxTranslateの利用に関するルールを定めるものです。本規定は利用規約の一部です。本サービスを利用することにより、お客様は本規定を遵守することに同意したものとみなされます。違反があった場合、当社はアカウントの停止または解約、コンテンツの削除、アクセスの制限を行うことがあります。
+
+## 1. 他の参加者を尊重する
+
+本サービスを以下の目的で使用することはできません：
+
+- 嫌がらせ、いじめ、脅迫、つきまとい、威圧を行うこと；
+- ヘイトコンテンツを投稿・送信すること、または人種、民族、出身国、宗教、性別、ジェンダー、性的指向、障害その他の保護対象の属性に基づいて人を攻撃すること；
+- 性的に露骨なコンテンツや性的搾取コンテンツを共有すること、またはそのようなコンテンツを求めること；
+- 過激な暴力表現や、衝撃や嫌悪感を与えることを目的としたコンテンツに他者をさらすこと。
+
+## 2. 違法または有害な行為の禁止
+
+- 本サービスを違法な目的で、または違法行為を助長するために使用しないでください。
+- 詐欺、悪質商法、フィッシング、個人や組織へのなりすましを行わないでください。
+- 他者の知的財産権やプライバシーを侵害するコンテンツを共有しないでください。
+- 未成年者を性的に搾取したり危険にさらしたりするコンテンツは一切禁止します。当社はそのようなコンテンツを関係当局に通報します。
+
+## 3. スパムやプラットフォームの不正利用の禁止
+
+- スパム、大量の未承諾メッセージ、広告を送信しないでください。
+- アカウント、ルーム、システム、データへの不正アクセスを試みないでください。
+- 本サービスやそのセキュリティ機能に対する探査、スキャン、過負荷、妨害、その他の干渉を行わないでください。
+- 明示的に許可されている場合を除き、ボット、スクレイパーその他の自動化された手段で本サービスにアクセスしないでください。
+
+## 4. 録音・録画と同意
+
+他者のプライバシーを尊重してください。関係者の同意を得ず、また適用される法律に従わずに、通話、音声、映像、文字起こし、翻訳を録音・録画、スクリーンショット、再配布しないでください。
+
+## 5. 通報と対応
+
+各参加者は通話中に通報またはブロックできます。当社は、深刻なコンテンツを検出するために文字起こしされた発話とチャットに自動フィルタリングを使用し、通報を審査します。重大性に応じて、警告の発行、一時的な停止、アカウントの永久BANを行うことがあります。重大な違反は法執行機関に通報される場合があります。
+
+## 6. お問い合わせ
+
+不正利用の通報や本規定に関するご質問は、アプリ内の通報ツールをご利用いただくか、abuse@voxtranslate.app までご連絡ください。' FROM legal_pages WHERE slug = 'acceptable-use'
+  ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
+INSERT INTO legal_translations (page_id, language, title, body)
+  SELECT id, 'zh', '可接受使用政策', '> ⚠️ **本文为草稿模板，不构成法律意见。** 在依赖本文之前，请先经合格律师审阅。
+
+本可接受使用政策（“AUP”）规定了使用 VoxTranslate 的规则。它是我们服务条款的一部分。使用本服务即表示您同意遵守本政策。如有违反，我们可以暂停或终止账户、删除内容或限制访问。
+
+## 1. 尊重其他参与者
+
+您不得使用本服务：
+
+- 骚扰、欺凌、威胁、跟踪或恐吓任何人；
+- 发布或传输仇恨内容，或基于种族、民族、国籍、宗教、性别、性别认同、性取向、残障或任何其他受保护特征攻击他人；
+- 分享色情或性剥削内容，或索取此类内容；
+- 让他人接触血腥暴力或旨在令人震惊或反感的内容。
+
+## 2. 禁止非法或有害活动
+
+- 不得将本服务用于任何非法目的或为非法活动提供便利。
+- 不得实施欺诈、诈骗、网络钓鱼，或冒充任何个人或组织。
+- 不得分享侵犯他人知识产权或隐私权的内容。
+- 绝对禁止任何性剥削或危害未成年人的内容。我们会向有关当局举报此类内容。
+
+## 3. 禁止垃圾信息或滥用平台
+
+- 不得发送垃圾信息、未经请求的群发消息或广告。
+- 不得试图未经授权访问账户、房间、系统或数据。
+- 不得探测、扫描、过载、干扰或以其他方式妨碍本服务或其安全功能。
+- 除非获得明确许可，不得使用机器人、爬虫或其他自动化手段访问本服务。
+
+## 4. 录制与同意
+
+请尊重他人隐私。未经相关人员同意并遵守适用于您的法律，不得录制、截屏或转发通话、音频、视频、转写或翻译内容。
+
+## 5. 举报与执行
+
+通话中可以举报或屏蔽任何参与者。我们对转写的语音和聊天内容使用自动过滤来检测严重内容，并会审查举报。视严重程度，我们可能发出警告、临时暂停或永久封禁账户。严重违规行为可能会报告给执法部门。
+
+## 6. 联系我们
+
+如需举报滥用或咨询本政策，请使用应用内的举报工具，或发送邮件至 abuse@voxtranslate.app。' FROM legal_pages WHERE slug = 'acceptable-use'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
 COMMIT;

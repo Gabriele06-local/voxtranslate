@@ -1,11 +1,10 @@
 // Generates directus/seed-content.sql: the 8 UI languages and the 3 legal pages
-// (English bodies read from directus/legal/*.en.md). Run this BEFORE seed-i18n.sql.
+// (bodies read from directus/legal/<slug>.<lang>.md). Run this BEFORE seed-i18n.sql.
 //
 //   node directus/gen-content-seed.mjs > directus/seed-content.sql
 //
-// Other languages for the legal pages are added later in the Directus
-// Translations interface; the client renders the requested language, falling
-// back to English, then to its bundled copy.
+// Languages without a markdown file are skipped; the client renders the
+// requested language, falling back to English, then to its bundled copy.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
