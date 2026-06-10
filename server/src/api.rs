@@ -20,7 +20,9 @@ use rust_decimal::Decimal;
 use chrono::{DateTime, Utc};
 
 use crate::billing::usd;
+use crate::glossary::{import_csv, normalize_entries, NewEntry, RoomGlossary};
 use crate::middleware::AuthUser;
+use crate::protocol::ServerMessage;
 use crate::stripe_handler;
 use crate::transcripts::{BookmarkMutation, SessionAccess, TranscriptService};
 use crate::AppState;
@@ -678,6 +680,204 @@ fn bookmark_mutation_response(
         }
         Err(e) => {
             tracing::error!("{what} failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// ---- Room glossary (spec 0011) ---------------------------------------------
+
+#[derive(Deserialize)]
+pub struct GlossaryPayload {
+    pub name: Option<String>,
+    #[serde(default)]
+    pub entries: Vec<NewEntry>,
+}
+
+#[derive(Deserialize)]
+pub struct GlossaryImport {
+    pub csv: String,
+}
+
+/// Validate the room code from the path (rooms are short user-chosen codes).
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
+fn clean_room(room: &str) -> Result<String, Response> {
+    let r = room.trim();
+    if r.is_empty() || r.len() > 64 {
+        return Err((StatusCode::BAD_REQUEST, "invalid room").into_response());
+    }
+    Ok(r.to_string())
+}
+
+/// Trim a glossary name: empty → `None`, > 100 chars → 400.
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
+fn clean_glossary_name(name: Option<String>) -> Result<Option<String>, Response> {
+    let Some(n) = name else { return Ok(None) };
+    let n = n.trim();
+    if n.chars().count() > 100 {
+        return Err((StatusCode::BAD_REQUEST, "glossary name too long").into_response());
+    }
+    Ok((!n.is_empty()).then(|| n.to_string()))
+}
+
+/// `{ name, entries, max_entries }` — the shape the editor modal consumes.
+fn glossary_response(g: &RoomGlossary, max_entries: usize) -> Response {
+    Json(serde_json::json!({
+        "name": g.name,
+        "entries": g.entries,
+        "max_entries": max_entries,
+    }))
+    .into_response()
+}
+
+/// Tell everyone currently in the room about the new glossary state, so the
+/// in-call badge updates live and the next utterance uses the fresh terms.
+fn broadcast_glossary(state: &AppState, room: &str, g: &RoomGlossary) {
+    state.rooms.broadcast(
+        room,
+        &ServerMessage::GlossaryActive {
+            name: g.name.clone(),
+            entries: g.entries.len(),
+        }
+        .to_json(),
+    );
+}
+
+/// `GET /api/rooms/{room}/glossary` — the room's glossary (empty when none).
+pub async fn glossary_get(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path(room): Path<String>,
+) -> Response {
+    let Some(svc) = state.glossary.as_ref() else {
+        return service_unavailable();
+    };
+    let room = match clean_room(&room) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    match svc.get(&room).await {
+        Ok(g) => glossary_response(&g, svc.max_entries()),
+        Err(e) => {
+            tracing::error!("glossary load failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `POST /api/rooms/{room}/glossary` — replace the glossary (name + entries).
+/// Any signed-in user may edit: whoever has the room code is in the meeting.
+pub async fn glossary_save(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(room): Path<String>,
+    Json(body): Json<GlossaryPayload>,
+) -> Response {
+    let Some(svc) = state.glossary.as_ref() else {
+        return service_unavailable();
+    };
+    let room = match clean_room(&room) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let name = match clean_glossary_name(body.name) {
+        Ok(n) => n,
+        Err(resp) => return resp,
+    };
+    let entries = match normalize_entries(body.entries, svc.max_entries()) {
+        Ok(e) => e,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    match svc.save(&room, name.as_deref(), &entries, user.user_id).await {
+        Ok(g) => {
+            broadcast_glossary(&state, &room, &g);
+            glossary_response(&g, svc.max_entries())
+        }
+        Err(e) => {
+            tracing::error!("glossary save failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `DELETE /api/rooms/{room}/glossary` — drop it entirely (idempotent, 204).
+pub async fn glossary_delete(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path(room): Path<String>,
+) -> Response {
+    let Some(svc) = state.glossary.as_ref() else {
+        return service_unavailable();
+    };
+    let room = match clean_room(&room) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    match svc.delete(&room).await {
+        Ok(()) => {
+            broadcast_glossary(&state, &room, &RoomGlossary::default());
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => {
+            tracing::error!("glossary delete failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `POST /api/rooms/{room}/glossary/import` — parse CSV server-side and merge
+/// into the saved glossary (imported rows override same-key entries).
+pub async fn glossary_import(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(room): Path<String>,
+    Json(body): Json<GlossaryImport>,
+) -> Response {
+    let Some(svc) = state.glossary.as_ref() else {
+        return service_unavailable();
+    };
+    let room = match clean_room(&room) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let imported = match import_csv(&body.csv) {
+        Ok(rows) if rows.is_empty() => {
+            return (StatusCode::BAD_REQUEST, "no entries in CSV").into_response()
+        }
+        Ok(rows) => rows,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let existing = match svc.get(&room).await {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::error!("glossary load failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    // Existing first, imported last → last-wins dedupe lets the import override.
+    let mut merged: Vec<NewEntry> = existing
+        .entries
+        .iter()
+        .map(|e| NewEntry {
+            source_lang: e.source_lang.clone(),
+            target_lang: e.target_lang.clone(),
+            source_term: e.source_term.clone(),
+            target_term: e.target_term.clone(),
+        })
+        .collect();
+    merged.extend(imported);
+    let entries = match normalize_entries(merged, svc.max_entries()) {
+        Ok(e) => e,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+    let name = existing.name.clone();
+    match svc.save(&room, name.as_deref(), &entries, user.user_id).await {
+        Ok(g) => {
+            broadcast_glossary(&state, &room, &g);
+            glossary_response(&g, svc.max_entries())
+        }
+        Err(e) => {
+            tracing::error!("glossary import save failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }

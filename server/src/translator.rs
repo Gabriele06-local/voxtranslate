@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use crate::glossary::RoomGlossary;
 use crate::groq::Groq;
 
 /// Fan-out translator over a cloneable Groq client.
@@ -20,11 +21,14 @@ impl Translator {
     /// Translate `text` from `source_lang` into each of `target_langs` in
     /// parallel. The returned map always contains the source language mapped to
     /// the original text; failed individual translations are simply omitted.
+    /// When the room has a `glossary`, each direction gets its matching term
+    /// pairs injected into the prompt (spec 0011).
     pub async fn translate_fanout(
         &self,
         text: &str,
         source_lang: &str,
         target_langs: &[String],
+        glossary: Option<&RoomGlossary>,
     ) -> HashMap<String, String> {
         let mut translations = HashMap::new();
         translations.insert(source_lang.to_string(), text.to_string());
@@ -38,8 +42,11 @@ impl Translator {
             let text = text.to_string();
             let src = source_lang.to_string();
             let tgt = tgt.clone();
+            let terms = glossary
+                .map(|g| g.terms_for(&src, &tgt))
+                .unwrap_or_default();
             tasks.push(tokio::spawn(async move {
-                (tgt.clone(), groq.translate(&text, &src, &tgt).await)
+                (tgt.clone(), groq.translate(&text, &src, &tgt, &terms).await)
             }));
         }
 
@@ -61,11 +68,13 @@ mod tests {
     async fn fanout_includes_source_and_skips_same_lang() {
         let tr = Translator::new(Groq::new("dummy-key".into()));
         // No targets -> just the source text, no network call.
-        let m = tr.translate_fanout("ciao", "it", &[]).await;
+        let m = tr.translate_fanout("ciao", "it", &[], None).await;
         assert_eq!(m.get("it").map(String::as_str), Some("ciao"));
         assert_eq!(m.len(), 1);
         // target == source is skipped (still no network).
-        let m2 = tr.translate_fanout("ciao", "it", &["it".to_string()]).await;
+        let m2 = tr
+            .translate_fanout("ciao", "it", &["it".to_string()], None)
+            .await;
         assert_eq!(m2.len(), 1);
     }
 }

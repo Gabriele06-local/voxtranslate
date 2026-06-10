@@ -141,6 +141,83 @@ export async function deleteBookmark(sessionId: string, bookmarkId: string): Pro
   }
 }
 
+// ---- Room glossary (REST under /api/rooms/{room}/glossary) ------------------
+
+export interface GlossaryEntry {
+  /** Present on saved entries; the editor sends rows without ids. */
+  id?: string;
+  source_lang: string;
+  target_lang: string;
+  source_term: string;
+  target_term: string;
+}
+
+export interface Glossary {
+  name: string | null;
+  entries: GlossaryEntry[];
+  /** Server-side cap (GLOSSARY_MAX_ENTRIES) — shown in the editor. */
+  max_entries: number;
+}
+
+/** Save/import outcome: `glossary` on success, else the server's 400 text. */
+export interface GlossaryResult {
+  glossary: Glossary | null;
+  /** Empty on network failure (the caller shows a generic message). */
+  error: string;
+}
+
+const glossaryUrl = (room: string) => `${HTTP_BASE}/api/rooms/${encodeURIComponent(room)}/glossary`;
+
+/** The room's glossary (empty one for fresh rooms); null on 401/network error. */
+export async function fetchGlossary(room: string): Promise<Glossary | null> {
+  try {
+    const res = await fetch(glossaryUrl(room), { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as Glossary;
+  } catch {
+    return null;
+  }
+}
+
+/** Run a glossary POST and normalize the ok/400 outcome. */
+async function glossaryPost(url: string, body: unknown): Promise<GlossaryResult> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return { glossary: null, error: await res.text() };
+    return { glossary: (await res.json()) as Glossary, error: '' };
+  } catch {
+    return { glossary: null, error: '' };
+  }
+}
+
+/** Replace the room glossary (name + full entry list). 400 → validation text. */
+export function saveGlossary(
+  room: string,
+  name: string | null,
+  entries: GlossaryEntry[],
+): Promise<GlossaryResult> {
+  return glossaryPost(glossaryUrl(room), { name, entries });
+}
+
+/** Merge a CSV (source_lang,target_lang,source_term,target_term) into the glossary. */
+export function importGlossaryCsv(room: string, csv: string): Promise<GlossaryResult> {
+  return glossaryPost(`${glossaryUrl(room)}/import`, { csv });
+}
+
+/** Delete the whole room glossary (idempotent server-side). */
+export async function deleteGlossary(room: string): Promise<boolean> {
+  try {
+    const res = await fetch(glossaryUrl(room), { method: 'DELETE', headers: authHeaders() });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---- AI pricing (GET /api/billing/ai-pricing) -------------------------------
 
 export interface AiPricing {

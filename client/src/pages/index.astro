@@ -71,6 +71,7 @@ const LANGS = [
             <div class="room-row">
               <input id="room" type="text" autocomplete="off" spellcheck="false" />
               <button id="dice" class="btn-ghost icon-btn" data-i18n-title="diceTip"></button>
+              <button id="btn-glossary-home" class="btn-ghost icon-btn" data-i18n-title="glossaryTip" data-i18n-label="glossaryTip" hidden></button>
             </div>
           </label>
           <div class="field">
@@ -185,6 +186,7 @@ const LANGS = [
           <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
           <span id="call-vis" class="vis-badge"></span>
           <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
+          <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
           <span id="call-balance" class="call-balance hidden"></span>
         </header>
         <div id="low-banner" class="low-banner hidden">
@@ -340,6 +342,41 @@ const LANGS = [
         <div class="modal-actions">
           <button id="exhausted-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
           <button id="exhausted-buy" class="btn-primary" data-i18n="buyCredits"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== ROOM GLOSSARY MODAL (spec 0011) ===================== -->
+    <div id="glossary-modal" class="modal-overlay hidden">
+      <div class="modal card glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
+        <div class="modal-head">
+          <span id="glossary-title" class="card-title" data-i18n="glossaryTitle"></span>
+          <button id="glossary-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+        </div>
+        <p class="modal-text" data-i18n="glossaryHint"></p>
+        <label class="field">
+          <span class="field-label" data-i18n="glossaryNameLabel"></span>
+          <input id="glossary-name" type="text" maxlength="100" autocomplete="off" data-i18n-ph="glossaryNamePh" />
+        </label>
+        <div class="glossary-grid glossary-grid-head" aria-hidden="true">
+          <span data-i18n="glossarySrcLang"></span><span data-i18n="glossaryTgtLang"></span>
+          <span data-i18n="glossarySrcTerm"></span><span data-i18n="glossaryTgtTerm"></span><span></span>
+        </div>
+        <div id="glossary-rows" class="glossary-rows"></div>
+        <div class="glossary-toolbar">
+          <button id="glossary-add-row" class="btn-ghost" data-i18n="glossaryAddRow"></button>
+          <span id="glossary-count" class="glossary-count mono"></span>
+        </div>
+        <details class="glossary-csv">
+          <summary data-i18n="glossaryCsvTitle"></summary>
+          <p class="glossary-csv-hint" data-i18n="glossaryCsvHint"></p>
+          <textarea id="glossary-csv-text" rows="4" spellcheck="false" data-i18n-ph="glossaryCsvPh" data-i18n-label="glossaryCsvTitle"></textarea>
+          <button id="glossary-import" class="btn-ghost" data-i18n="glossaryImport"></button>
+        </details>
+        <p id="glossary-status" class="status-line" role="status"></p>
+        <div class="modal-actions">
+          <button id="glossary-delete" class="btn-ghost danger" data-i18n="glossaryDeleteAll"></button>
+          <button id="glossary-save" class="btn-primary" data-i18n="saveBtn"></button>
         </div>
       </div>
     </div>
@@ -864,6 +901,46 @@ const LANGS = [
     .session-bookmarks :global(.bm-time) { flex: none; color: var(--muted); font-size: 0.76rem; }
     .session-bookmarks :global(.bm-by) { flex: none; font-size: 0.8rem; font-weight: 700; color: var(--accent); }
     .session-bookmarks :global(.bm-label) { font-size: 0.85rem; color: var(--text); overflow-wrap: anywhere; }
+
+    /* ---- Room glossary (spec 0011) ---- */
+    .glossary-badge {
+      font-size: 0.78rem; color: var(--text); background: none; cursor: pointer;
+      border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+    }
+    .glossary-badge:disabled { cursor: default; } /* guests: visible, not clickable */
+    .glossary-modal { max-width: 660px; }
+    /* Term rows are created in JS → :global() (Astro scoping). */
+    .glossary-grid, .glossary-rows :global(.glossary-row) {
+      display: grid; grid-template-columns: 96px 96px 1fr 1fr 34px; gap: 6px; align-items: center;
+    }
+    .glossary-grid-head span { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .glossary-rows { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
+    /* JS-created controls don't carry Astro's scope attr → restate the base look. */
+    .glossary-rows :global(input), .glossary-rows :global(select) {
+      width: 100%; min-height: 38px; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px; padding: 6px 8px; font-size: 0.85rem;
+    }
+    .glossary-rows :global(input:focus), .glossary-rows :global(select:focus) { border-color: var(--accent); }
+    .glossary-rows :global(.glossary-remove) {
+      background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 8px;
+      min-height: 38px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s;
+    }
+    .glossary-rows :global(.glossary-remove:hover) { color: var(--danger); border-color: var(--danger); }
+    .glossary-toolbar { display: flex; align-items: center; justify-content: space-between; }
+    .glossary-count { font-size: 0.78rem; color: var(--muted); }
+    .glossary-csv summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+    .glossary-csv[open] summary { margin-bottom: 8px; }
+    .glossary-csv-hint { font-size: 0.78rem; color: var(--muted); margin: 0 0 8px; }
+    .glossary-csv textarea {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 10px; resize: vertical; margin-bottom: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
+    }
+    .glossary-csv textarea:focus { border-color: var(--accent); }
+    .glossary-modal .danger { color: var(--danger); border-color: var(--danger); }
+    @media (max-width: 640px) {
+      .glossary-grid, .glossary-rows :global(.glossary-row) { grid-template-columns: 80px 80px 1fr 1fr 30px; }
+    }
 
     @media (max-width: 768px) {
       #call { flex-direction: column; }

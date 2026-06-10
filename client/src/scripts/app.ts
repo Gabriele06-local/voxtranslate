@@ -11,6 +11,7 @@ import { ChatManager, type ChatPayload } from './chat';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
+import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -481,6 +482,7 @@ async function handleServer(msg: any): Promise<void> {
       callStartedAt = Date.now();
       show($('transcript-indicator'), !!activeSessionId);
       setBookmarkSession(activeSessionId); // 🔖 button appears (authed users only)
+      setGlossaryRoom(session?.room ?? null); // 📖 badge target (spec 0011)
       for (const p of msg.peers) {
         peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
@@ -533,6 +535,10 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'emoji_reaction':
       showEmojiReaction(msg.peer_id, msg.emoji);
+      break;
+    case 'glossary_active':
+      // Sent on join and re-broadcast after edits; entries 0 hides the badge.
+      onGlossaryActive(msg.name ?? null, msg.entries);
       break;
     case 'hand_raised':
       peerHandRaised.set(msg.peer_id, msg.raised);
@@ -1329,6 +1335,7 @@ function leaveCall(): void {
   participantsPanel.classList.remove('open');
   participantsPanel.classList.add('closed');
   setBookmarkSession(null); // hides the 🔖 button + closes its panel
+  setGlossaryRoom(null); // hides the 📖 badge + closes the editor
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
@@ -1464,6 +1471,7 @@ function enterHome(): void {
     ensureConsent();
   }
   updatePublicGate();
+  refreshGlossaryHome(); // 📖 home button is auth-only
   startLobby();
 }
 
@@ -1975,6 +1983,9 @@ $('postcall-close').innerHTML = icon('close', 16);
 $('btn-bookmark').innerHTML = icon('bookmark');
 $('bookmarks-close').innerHTML = icon('close', 16);
 initBookmarks({ layout: layoutVideos }); // panel toggles re-flow the video grid
+$('btn-glossary-home').innerHTML = icon('book', 18);
+$('glossary-close').innerHTML = icon('close', 16);
+initGlossary({ show }); // app's show() gives the modal its focus trap
 
 // ---- Emoji picker ----------------------------------------------------------
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];

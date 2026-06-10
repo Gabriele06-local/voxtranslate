@@ -14,6 +14,7 @@ pub mod config;
 pub mod content;
 pub mod db;
 pub mod deepgram;
+pub mod glossary;
 pub mod groq;
 pub mod middleware;
 pub mod moderation;
@@ -49,6 +50,7 @@ use crate::auth::{GoogleVerifier, TokenVerifier};
 use crate::billing::{usd, BillingService};
 use crate::config::Config;
 use crate::db::Pool;
+use crate::glossary::GlossaryService;
 use crate::groq::Groq;
 use crate::moderation::{Moderator, Severity};
 use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
@@ -73,6 +75,8 @@ pub struct AppState {
     pub safety: Option<SafetyService>,
     /// Transcript persistence/export — `Some` only when the database is configured.
     pub transcripts: Option<TranscriptService>,
+    /// Room glossaries (spec 0011) — `Some` only when the database is configured.
+    pub glossary: Option<GlossaryService>,
     /// Verifies Google credentials (swappable for tests).
     pub verifier: Arc<dyn TokenVerifier>,
     /// Shared HTTP client (Google tokeninfo, Stripe).
@@ -105,6 +109,7 @@ impl AppState {
             billing: None,
             safety: None,
             transcripts: None,
+            glossary: None,
             verifier,
             http,
             rate_limiter: Arc::new(RateLimiter::new()),
@@ -127,6 +132,10 @@ impl AppState {
             state.billing = Some(BillingService::new(pool.clone(), min_join));
             state.safety = Some(SafetyService::new(pool.clone()));
             state.transcripts = Some(TranscriptService::new(pool.clone()));
+            state.glossary = Some(GlossaryService::new(
+                pool.clone(),
+                billing.glossary_max_entries,
+            ));
             // Layer the DB-managed blocklist over the env baseline.
             let db_terms = content::load_blocklist_terms(&pool).await;
             state.moderator = Arc::new(Moderator::from_env().with_terms(db_terms));
@@ -181,6 +190,16 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/sessions/{id}/bookmarks/{bid}",
             axum::routing::patch(api::bookmark_update).delete(api::bookmark_delete),
+        )
+        .route(
+            "/api/rooms/{room}/glossary",
+            get(api::glossary_get)
+                .post(api::glossary_save)
+                .delete(api::glossary_delete),
+        )
+        .route(
+            "/api/rooms/{room}/glossary/import",
+            post(api::glossary_import),
         )
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))
@@ -528,6 +547,23 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
         .to_json(),
     );
+    // Room glossary (spec 0011): load it into the cache (the translation hot
+    // path reads it synchronously) and tell the joiner when one is active.
+    if let Some(g) = state.glossary.as_ref() {
+        match g.get(&room).await {
+            Ok(gl) if !gl.entries.is_empty() => {
+                let _ = out_tx.send(
+                    ServerMessage::GlossaryActive {
+                        name: gl.name.clone(),
+                        entries: gl.entries.len(),
+                    }
+                    .to_json(),
+                );
+            }
+            Ok(_) => {}
+            Err(e) => tracing::error!("glossary load for room {room} failed: {e}"),
+        }
+    }
     // Tell the others a new peer arrived (they initiate the WebRTC offer).
     state.rooms.broadcast_except(
         &room,
@@ -597,6 +633,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         speaker_lang: lang.clone(),
                                         session_id,
                                         speaker_user_id: billed_user,
+                                        glossary: state.glossary.clone(),
                                     },
                                 )
                                 .await;
@@ -660,6 +697,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         speaker_lang: lang.clone(),
                                         session_id,
                                         speaker_user_id: billed_user,
+                                        glossary: state.glossary.clone(),
                                     },
                                     &avatar_url,
                                     text,
@@ -770,8 +808,10 @@ fn handle_chat(
     let ts = chrono::Utc::now(); // capture send time before the translation await
     tokio::spawn(async move {
         let targets = rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
+        // Chat honors the room glossary too (same cache snapshot as speech).
+        let glo = ctx.glossary.as_ref().and_then(|g| g.cached(&ctx.room));
         let translations = translator
-            .translate_fanout(&text, &ctx.speaker_lang, &targets)
+            .translate_fanout(&text, &ctx.speaker_lang, &targets, glo.as_deref())
             .await;
         if let Some(svc) = transcripts.as_ref() {
             svc.record(TranscriptEvent {

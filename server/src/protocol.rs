@@ -139,6 +139,15 @@ pub enum ServerMessage {
         raised: bool,
     },
 
+    /// Room-glossary status (spec 0011): sent to a joining peer when the room
+    /// has a glossary, and re-broadcast after edits. `entries == 0` (after a
+    /// delete) hides the in-call badge.
+    GlossaryActive {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        entries: usize,
+    },
+
     /// Live partial transcript for a speaker (original language), broadcast so
     /// everyone can show it on the speaker's video cell.
     SubtitleInterim {
@@ -373,6 +382,21 @@ mod tests {
         }
         .to_json();
         assert!(h.contains("\"type\":\"hand_raised\"") && h.contains("\"raised\":true"));
+
+        // Glossary badge (spec 0011): name omitted when None.
+        let g = ServerMessage::GlossaryActive {
+            name: Some("Legal".into()),
+            entries: 12,
+        }
+        .to_json();
+        assert!(g.contains("\"type\":\"glossary_active\""));
+        assert!(g.contains("\"name\":\"Legal\"") && g.contains("\"entries\":12"));
+        let unnamed = ServerMessage::GlossaryActive {
+            name: None,
+            entries: 0,
+        }
+        .to_json();
+        assert!(!unnamed.contains("name"));
     }
 
     #[test]

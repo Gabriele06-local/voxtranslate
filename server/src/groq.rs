@@ -78,21 +78,17 @@ impl Groq {
     }
 
     /// Translate `text` from `source` to `target` (language codes like "it", "en").
-    /// Returns the translation only (no quotes/preamble). Retries once on HTTP 429.
+    /// `terms` are room-glossary pairs (already filtered to this direction) that
+    /// MUST be translated verbatim. Returns the translation only (no
+    /// quotes/preamble). Retries once on HTTP 429.
     pub async fn translate(
         &self,
         text: &str,
         source: &str,
         target: &str,
+        terms: &[(String, String)],
     ) -> Result<String, String> {
-        let system = format!(
-            "You are a real-time speech translator. Translate from {src} to {tgt}. \
-             Output ONLY the translation. No quotes, no explanation, no preamble. \
-             Preserve tone, register, and speech patterns. Handle informal/spoken \
-             language naturally. If text is already in target language, return it unchanged.",
-            src = lang_name(source),
-            tgt = lang_name(target),
-        );
+        let system = translation_prompt(source, target, terms);
         self.chat(ChatRequest::new(MODEL, system, text)).await
     }
 
@@ -175,6 +171,30 @@ struct ChatMessage {
     content: String,
 }
 
+/// Build the translation system prompt, with a glossary block when the room
+/// has terms for this language direction. Separated from the HTTP call for
+/// testing.
+fn translation_prompt(source: &str, target: &str, terms: &[(String, String)]) -> String {
+    let mut system = format!(
+        "You are a real-time speech translator. Translate from {src} to {tgt}. \
+         Output ONLY the translation. No quotes, no explanation, no preamble. \
+         Preserve tone, register, and speech patterns. Handle informal/spoken \
+         language naturally. If text is already in target language, return it unchanged.",
+        src = lang_name(source),
+        tgt = lang_name(target),
+    );
+    if !terms.is_empty() {
+        system.push_str(
+            "\n\nMANDATORY TERMINOLOGY: whenever a term on the left appears \
+             (any capitalization), use the exact translation on the right:\n",
+        );
+        for (src_term, tgt_term) in terms {
+            system.push_str(&format!("\"{src_term}\" -> \"{tgt_term}\"\n"));
+        }
+    }
+    system
+}
+
 /// Map a short language code to a human-readable name for the prompt. Unknown
 /// codes pass through unchanged so the model still gets a usable hint.
 fn lang_name(code: &str) -> &str {
@@ -205,6 +225,22 @@ mod tests {
     }
 
     #[test]
+    fn translation_prompt_glossary_block_only_when_terms_exist() {
+        let bare = translation_prompt("it", "en", &[]);
+        assert!(bare.contains("Italian") && bare.contains("English"));
+        assert!(!bare.contains("MANDATORY TERMINOLOGY"));
+
+        let terms = vec![
+            ("fattura".to_string(), "invoice".to_string()),
+            ("preventivo".to_string(), "quote".to_string()),
+        ];
+        let with = translation_prompt("it", "en", &terms);
+        assert!(with.contains("MANDATORY TERMINOLOGY"));
+        assert!(with.contains("\"fattura\" -> \"invoice\""));
+        assert!(with.contains("\"preventivo\" -> \"quote\""));
+    }
+
+    #[test]
     fn chat_request_body_shape() {
         let req = ChatRequest::new("m", "sys", "usr");
         let body = req.body();
@@ -230,6 +266,6 @@ mod error_tests {
         // A bad key makes Groq return a non-success status -> Err (covers the
         // error-handling branch).
         let g = Groq::new("bad-key-xyz".into());
-        assert!(g.translate("ciao", "it", "en").await.is_err());
+        assert!(g.translate("ciao", "it", "en", &[]).await.is_err());
     }
 }

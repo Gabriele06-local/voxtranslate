@@ -21,6 +21,7 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
 
 use crate::config::Config;
+use crate::glossary::GlossaryService;
 use crate::moderation::{Moderator, Severity};
 use crate::protocol::{DeepgramResponse, ServerMessage};
 use crate::rooms::RoomManager;
@@ -38,6 +39,10 @@ pub struct SpeakerCtx {
     pub session_id: Uuid,
     /// `None` for guests.
     pub speaker_user_id: Option<Uuid>,
+    /// Room-glossary handle (spec 0011); `None` without a database. Terms are
+    /// resolved per utterance via the synchronous cache, so mid-call edits
+    /// apply to the very next sentence.
+    pub glossary: Option<GlossaryService>,
 }
 
 type DgStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -135,6 +140,7 @@ pub async fn process_transcripts(
         speaker_lang,
         session_id,
         speaker_user_id,
+        glossary,
     } = ctx;
     while let Some(msg) = source.next().await {
         let text = match msg {
@@ -198,6 +204,7 @@ pub async fn process_transcripts(
         let rooms = rooms.clone();
         let translator = translator.clone();
         let transcripts = transcripts.clone();
+        let glossary = glossary.clone();
         let room = room.clone();
         let speaker_id = speaker_id.clone();
         let speaker_name = speaker_name.clone();
@@ -205,8 +212,10 @@ pub async fn process_transcripts(
         let ts = Utc::now();
         tokio::spawn(async move {
             let target_langs = rooms.get_room_languages(&room, &speaker_id);
+            // Snapshot of the room glossary (cache populated at room join).
+            let glo = glossary.as_ref().and_then(|g| g.cached(&room));
             let translations = translator
-                .translate_fanout(&transcript, &speaker_lang, &target_langs)
+                .translate_fanout(&transcript, &speaker_lang, &target_langs, glo.as_deref())
                 .await;
             if let Some(svc) = transcripts.as_ref() {
                 svc.record(TranscriptEvent {
