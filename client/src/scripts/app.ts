@@ -2,6 +2,7 @@
 // → WebRTC video call with translated subtitles + chat.
 
 import { applyI18n, detectLang, FLAG, setUiLang, t } from './i18n';
+import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
@@ -877,6 +878,9 @@ function show(el: HTMLElement, visible: boolean): void {
 }
 
 async function boot(): Promise<void> {
+  // Pull any DB-managed UI strings over the bundled defaults, then re-render
+  // (fails safe — keeps the bundled strings if the API is down).
+  if (await loadRemoteI18n(HTTP_BASE)) applyI18n();
   billing = await auth.billingEnabled();
   if (billing && !auth.isLoggedIn()) {
     showLogin();

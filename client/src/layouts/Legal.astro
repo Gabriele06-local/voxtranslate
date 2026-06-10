@@ -38,6 +38,28 @@ const { title, updated = '10 June 2026', version = '2026-06-10' } = Astro.props;
     </footer>
   </main>
 
+  <script>
+    // Overlay backoffice-managed content if present; otherwise keep the bundled
+    // copy rendered above (works offline / when the API is down).
+    import { fetchLegal, renderMarkdown } from '../scripts/content';
+    const slug = location.pathname.replace(/\//g, '');
+    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    if (slug) {
+      fetchLegal(slug, lang)
+        .then((doc) => {
+          if (!doc) return;
+          const h1 = document.querySelector('.legal-header h1');
+          const body = document.querySelector('.legal-body');
+          if (h1 && doc.title) {
+            h1.textContent = doc.title;
+            document.title = `${doc.title} · VoxTranslate`;
+          }
+          if (body && doc.body) body.innerHTML = renderMarkdown(doc.body);
+        })
+        .catch(() => {});
+    }
+  </script>
+
   <style is:global>
     .legal {
       max-width: 760px;
