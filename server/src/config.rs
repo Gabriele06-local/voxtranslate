@@ -18,6 +18,8 @@ pub struct Config {
     pub allowed_origins: Vec<String>,
     /// Present only when auth/billing is configured.
     pub billing: Option<BillingConfig>,
+    /// Present only when all `RESEND_*` vars are set; gates follow-up email.
+    pub resend: Option<ResendConfig>,
 }
 
 /// Everything needed for accounts, credits, and payments.
@@ -37,6 +39,36 @@ pub struct BillingConfig {
     /// endpoints (server-to-server). When absent, admin endpoints are disabled.
     pub admin_api_secret: Option<String>,
     pub pricing: PricingConfig,
+    /// Max term pairs allowed per room glossary.
+    pub glossary_max_entries: usize,
+    pub ai: AiConfig,
+}
+
+/// AI-feature pricing and models. Costs are USD (same unit as `users.balance`),
+/// configurable per feature without code changes. Env names follow the product
+/// spec (`CREDITS_*`) even though values are decimal USD.
+#[derive(Debug, Clone)]
+pub struct AiConfig {
+    /// Model for offline analysis (report, sentiment, email draft).
+    pub report_model: String,
+    /// Model used when the primary model errors (and for live suggestions).
+    pub fallback_model: String,
+    pub report_base: f64,
+    pub report_per_minute: f64,
+    pub sentiment_base: f64,
+    pub sentiment_per_participant: f64,
+    pub sentiment_per_minute: f64,
+    pub email_draft: f64,
+    pub suggestions_per_minute: f64,
+    pub suggestions_interval_secs: u64,
+}
+
+/// Resend (transactional email) credentials. All-or-nothing like billing.
+#[derive(Debug, Clone)]
+pub struct ResendConfig {
+    pub api_key: String,
+    pub from_email: String,
+    pub from_name: String,
 }
 
 /// Pricing — all values from env. The user-facing rate (cost × markup) and the
@@ -90,12 +122,22 @@ impl Config {
                 None
             };
 
+        let resend = if present("RESEND_API_KEY")
+            && present("RESEND_FROM_EMAIL")
+            && present("RESEND_FROM_NAME")
+        {
+            Some(ResendConfig::from_env())
+        } else {
+            None
+        };
+
         Ok(Self {
             deepgram_key,
             groq_key,
             port,
             allowed_origins,
             billing,
+            resend,
         })
     }
 
@@ -123,6 +165,58 @@ impl BillingConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
             pricing: PricingConfig::from_env(),
+            glossary_max_entries: parse_or("GLOSSARY_MAX_ENTRIES", 200usize),
+            ai: AiConfig::from_env(),
+        }
+    }
+}
+
+impl AiConfig {
+    fn from_env() -> Self {
+        Self {
+            report_model: env::var("GROQ_REPORT_MODEL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "llama-3.3-70b-versatile".into()),
+            fallback_model: env::var("GROQ_FALLBACK_MODEL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "llama-3.1-8b-instant".into()),
+            report_base: parse_or("CREDITS_REPORT_BASE", 0.05f64),
+            report_per_minute: parse_or("CREDITS_REPORT_PER_MINUTE", 0.002f64),
+            sentiment_base: parse_or("CREDITS_SENTIMENT_BASE", 0.05f64),
+            sentiment_per_participant: parse_or("CREDITS_SENTIMENT_PER_PARTICIPANT", 0.01f64),
+            sentiment_per_minute: parse_or("CREDITS_SENTIMENT_PER_MINUTE", 0.002f64),
+            email_draft: parse_or("CREDITS_EMAIL_DRAFT", 0.02f64),
+            suggestions_per_minute: parse_or("CREDITS_SUGGESTIONS_PER_MINUTE", 0.005f64),
+            suggestions_interval_secs: parse_or("SUGGESTIONS_INTERVAL_SECONDS", 15u64),
+        }
+    }
+
+    /// Defaults for tests (no env reads).
+    #[doc(hidden)]
+    pub fn test_default() -> Self {
+        Self {
+            report_model: "llama-3.3-70b-versatile".into(),
+            fallback_model: "llama-3.1-8b-instant".into(),
+            report_base: 0.05,
+            report_per_minute: 0.002,
+            sentiment_base: 0.05,
+            sentiment_per_participant: 0.01,
+            sentiment_per_minute: 0.002,
+            email_draft: 0.02,
+            suggestions_per_minute: 0.005,
+            suggestions_interval_secs: 15,
+        }
+    }
+}
+
+impl ResendConfig {
+    fn from_env() -> Self {
+        Self {
+            api_key: env::var("RESEND_API_KEY").unwrap_or_default(),
+            from_email: env::var("RESEND_FROM_EMAIL").unwrap_or_default(),
+            from_name: env::var("RESEND_FROM_NAME").unwrap_or_default(),
         }
     }
 }
@@ -218,7 +312,10 @@ impl Config {
                     usage_update_interval: 5,
                     packages: vec![],
                 },
+                glossary_max_entries: 200,
+                ai: AiConfig::test_default(),
             }),
+            resend: None,
         }
     }
 }

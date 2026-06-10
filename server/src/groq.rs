@@ -1,5 +1,6 @@
-//! Groq chat-completion client used to translate a finalized transcript.
-//! Non-streaming: a single sentence is fast enough (~120ms) and simpler.
+//! Groq chat-completion client. `translate()` powers the real-time pipeline;
+//! the generic `chat()` / `chat_json()` helpers power the AI features (report,
+//! sentiment, email draft, live suggestions). Non-streaming throughout.
 
 use serde::Deserialize;
 use std::time::Duration;
@@ -7,6 +8,56 @@ use std::time::Duration;
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 /// Spec model id. Centralized here so a Groq rename is a one-line change.
 const MODEL: &str = "llama-3.1-8b-instant";
+
+/// One chat-completion call. Build with [`ChatRequest::new`] then override
+/// fields as needed; the defaults match the real-time translation profile.
+#[derive(Debug, Clone)]
+pub struct ChatRequest {
+    pub model: String,
+    pub system: String,
+    pub user: String,
+    /// When set, asks for `response_format: json_object` (the prompt must also
+    /// mention JSON — a Groq requirement).
+    pub json_mode: bool,
+    pub max_tokens: u32,
+    pub temperature: f32,
+    /// Per-request override of the client-wide 15s timeout.
+    pub timeout: Duration,
+    /// Extra attempts on HTTP 429, with exponential backoff (400ms, 800ms, …).
+    pub max_retries: u8,
+}
+
+impl ChatRequest {
+    pub fn new(model: impl Into<String>, system: impl Into<String>, user: impl Into<String>) -> Self {
+        Self {
+            model: model.into(),
+            system: system.into(),
+            user: user.into(),
+            json_mode: false,
+            max_tokens: 256,
+            temperature: 0.2,
+            timeout: Duration::from_secs(15),
+            max_retries: 1,
+        }
+    }
+
+    /// Serialize the request body. Separated from the HTTP call for testing.
+    fn body(&self) -> serde_json::Value {
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                { "role": "system", "content": self.system },
+                { "role": "user", "content": self.user },
+            ],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        });
+        if self.json_mode {
+            body["response_format"] = serde_json::json!({ "type": "json_object" });
+        }
+        body
+    }
+}
 
 /// Cloneable translation client. Wraps a pooled `reqwest::Client` (keep-alive)
 /// and the API key.
@@ -42,30 +93,27 @@ impl Groq {
             src = lang_name(source),
             tgt = lang_name(target),
         );
+        self.chat(ChatRequest::new(MODEL, system, text)).await
+    }
 
-        let body = serde_json::json!({
-            "model": MODEL,
-            "messages": [
-                { "role": "system", "content": system },
-                { "role": "user", "content": text },
-            ],
-            "temperature": 0.2,
-            "max_tokens": 256,
-        });
-
-        // One retry on rate limit with a short backoff.
-        for attempt in 0..2 {
+    /// Run one chat completion; returns the assistant message content.
+    /// Retries on 429 up to `max_retries` times with exponential backoff.
+    pub async fn chat(&self, req: ChatRequest) -> Result<String, String> {
+        let body = req.body();
+        let attempts = u32::from(req.max_retries) + 1;
+        for attempt in 0..attempts {
             let resp = self
                 .http
                 .post(GROQ_URL)
                 .bearer_auth(&self.api_key)
+                .timeout(req.timeout)
                 .json(&body)
                 .send()
                 .await
                 .map_err(|e| format!("groq request failed: {e}"))?;
 
-            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt == 0 {
-                tokio::time::sleep(Duration::from_millis(400)).await;
+            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt + 1 < attempts {
+                tokio::time::sleep(Duration::from_millis(400 << attempt)).await;
                 continue;
             }
 
@@ -80,18 +128,35 @@ impl Groq {
                 .await
                 .map_err(|e| format!("groq response parse failed: {e}"))?;
 
-            let translated = parsed
+            return parsed
                 .choices
                 .into_iter()
                 .next()
                 .map(|c| c.message.content.trim().to_string())
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| "groq returned empty translation".to_string())?;
-
-            return Ok(translated);
+                .ok_or_else(|| "groq returned empty completion".to_string());
         }
 
         Err("groq rate limited after retry".to_string())
+    }
+
+    /// Like [`chat`](Self::chat) but forces JSON mode and parses the result.
+    /// On malformed JSON, re-asks once with a stricter instruction, then errors.
+    pub async fn chat_json(&self, mut req: ChatRequest) -> Result<serde_json::Value, String> {
+        req.json_mode = true;
+        let content = self.chat(req.clone()).await?;
+        match serde_json::from_str(&content) {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                req.system.push_str(
+                    "\n\nIMPORTANT: Respond with a single VALID JSON object only. \
+                     No markdown fences, no preamble, no trailing text.",
+                );
+                let retry = self.chat(req).await?;
+                serde_json::from_str(&retry)
+                    .map_err(|e| format!("groq returned malformed JSON after retry: {e}"))
+            }
+        }
     }
 }
 
@@ -137,6 +202,22 @@ mod tests {
         assert_eq!(lang_name("zh"), "Chinese");
         assert_eq!(lang_name("ja"), "Japanese");
         assert_eq!(lang_name("xx"), "xx");
+    }
+
+    #[test]
+    fn chat_request_body_shape() {
+        let req = ChatRequest::new("m", "sys", "usr");
+        let body = req.body();
+        assert_eq!(body["model"], "m");
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][0]["content"], "sys");
+        assert_eq!(body["messages"][1]["content"], "usr");
+        // JSON mode is opt-in: response_format only appears when requested.
+        assert!(body.get("response_format").is_none());
+
+        let mut json_req = ChatRequest::new("m", "sys", "usr");
+        json_req.json_mode = true;
+        assert_eq!(json_req.body()["response_format"]["type"], "json_object");
     }
 }
 

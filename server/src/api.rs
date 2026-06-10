@@ -14,6 +14,9 @@ use axum::Json;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+
 use crate::billing::usd;
 use crate::middleware::AuthUser;
 use crate::stripe_handler;
@@ -177,6 +180,47 @@ fn service_unavailable() -> Response {
         "auth/billing not configured",
     )
         .into_response()
+}
+
+/// Shared 402 responder for credit-charged AI features. The pre-check is
+/// advisory (the atomic `deduct_feature` is the real gate) but lets the client
+/// show "need X, have Y" before any AI work runs.
+pub fn insufficient_credits(feature: &str, required: Decimal, available: Decimal) -> Response {
+    (
+        StatusCode::PAYMENT_REQUIRED,
+        Json(serde_json::json!({
+            "error": "insufficient_credits",
+            "required": required.to_f64().unwrap_or(0.0),
+            "available": available.to_f64().unwrap_or(0.0),
+            "feature": feature,
+        })),
+    )
+        .into_response()
+}
+
+/// `GET /api/billing/ai-pricing` — per-feature user rates for client cost
+/// previews. These are the env-configured user-facing prices; raw cost/markup
+/// internals are never exposed.
+pub async fn ai_pricing(State(state): State<AppState>) -> Response {
+    let Some(cfg) = state.config.billing.as_ref() else {
+        return service_unavailable();
+    };
+    let ai = &cfg.ai;
+    Json(serde_json::json!({
+        "report": { "base": ai.report_base, "per_minute": ai.report_per_minute },
+        "sentiment": {
+            "base": ai.sentiment_base,
+            "per_participant": ai.sentiment_per_participant,
+            "per_minute": ai.sentiment_per_minute,
+        },
+        "email": { "draft": ai.email_draft },
+        "suggestions": {
+            "per_minute": ai.suggestions_per_minute,
+            "interval_seconds": ai.suggestions_interval_secs,
+        },
+        "email_enabled": state.config.resend.is_some(),
+    }))
+    .into_response()
 }
 
 /// `GET /api/sessions` — call sessions the user took part in, newest first.

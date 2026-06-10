@@ -198,6 +198,54 @@ impl BillingService {
         Ok(new_balance)
     }
 
+    /// Deduct the cost of an AI feature (report, sentiment, email draft, live
+    /// suggestions). Same atomic shape as [`deduct_usage`](Self::deduct_usage):
+    /// row lock → balance check → update → ledger. The ledger row carries the
+    /// feature name as its `kind` plus the per-feature detail columns
+    /// (`feature`, `session_id`, `metadata`). No usage_sessions accumulation —
+    /// AI charges are not speaking time. Returns the new balance.
+    pub async fn deduct_feature(
+        &self,
+        user_id: Uuid,
+        session_id: Option<Uuid>,
+        feature: &str,
+        amount: Decimal,
+        description: &str,
+        metadata: serde_json::Value,
+    ) -> Result<Decimal, BillingError> {
+        let mut tx = self.pool.begin().await?;
+        let balance: Decimal =
+            sqlx::query_scalar("SELECT balance FROM users WHERE id = $1 FOR UPDATE")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if balance < amount {
+            return Err(BillingError::InsufficientFunds);
+        }
+        let new_balance = (balance - amount).round_dp(6);
+        sqlx::query("UPDATE users SET balance = $2, updated_at = now() WHERE id = $1")
+            .bind(user_id)
+            .bind(new_balance)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO credit_transactions
+                 (user_id, amount, kind, balance_after, description, feature, session_id, metadata)
+             VALUES ($1, $2, $3, $4, $5, $3, $6, $7)",
+        )
+        .bind(user_id)
+        .bind(-amount)
+        .bind(feature)
+        .bind(new_balance)
+        .bind(description)
+        .bind(session_id)
+        .bind(metadata)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(new_balance)
+    }
+
     /// Open a usage session for a call the user just joined.
     pub async fn create_session(&self, user_id: Uuid, room: &str) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar(
@@ -462,6 +510,80 @@ mod tests {
         assert_eq!(ok, 10);
         // Never negative, and fully drained.
         assert_eq!(svc.get_balance(uid).await.unwrap(), Decimal::ZERO);
+    }
+
+    #[tokio::test]
+    async fn deduct_feature_writes_ledger_detail() {
+        let Some(svc) = test_service().await else {
+            return;
+        };
+        let uid = make_user(&svc, Decimal::new(100, 2)).await; // 1.00
+        let sid = Uuid::new_v4();
+
+        let after = svc
+            .deduct_feature(
+                uid,
+                Some(sid),
+                "ai_report",
+                Decimal::new(7, 2), // 0.07
+                "AI report",
+                serde_json::json!({ "duration_min": 10 }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(after, Decimal::new(93, 2)); // 0.93
+
+        let (amount, kind, feature, tx_sid, metadata): (
+            Decimal,
+            String,
+            Option<String>,
+            Option<Uuid>,
+            Option<serde_json::Value>,
+        ) = sqlx::query_as(
+            "SELECT amount, kind, feature, session_id, metadata
+             FROM credit_transactions
+             WHERE user_id = $1
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(uid)
+        .fetch_one(&svc.pool)
+        .await
+        .unwrap();
+        assert_eq!(amount, Decimal::new(-7, 2));
+        assert_eq!(kind, "ai_report");
+        assert_eq!(feature.as_deref(), Some("ai_report"));
+        assert_eq!(tx_sid, Some(sid));
+        assert_eq!(metadata.unwrap()["duration_min"], 10);
+    }
+
+    #[tokio::test]
+    async fn deduct_feature_rolls_back_on_insufficient_funds() {
+        let Some(svc) = test_service().await else {
+            return;
+        };
+        let uid = make_user(&svc, Decimal::new(1, 2)).await; // 0.01
+        let err = svc
+            .deduct_feature(
+                uid,
+                None,
+                "ai_sentiment",
+                Decimal::new(10, 2), // wants 0.10
+                "Sentiment analysis",
+                serde_json::json!({}),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, BillingError::InsufficientFunds));
+        // Balance untouched, no ledger row written.
+        assert_eq!(svc.get_balance(uid).await.unwrap(), Decimal::new(1, 2));
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM credit_transactions WHERE user_id = $1")
+                .bind(uid)
+                .fetch_one(&svc.pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[tokio::test]

@@ -154,6 +154,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))
         .route("/api/billing/history", get(api::billing_history))
+        .route("/api/billing/ai-pricing", get(api::ai_pricing))
         .route("/api/usage/sessions", get(api::usage_sessions))
         .route("/api/sessions", get(api::sessions_list))
         .route(

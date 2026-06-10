@@ -168,6 +168,7 @@ mod guest_mode {
             port: 0,
             allowed_origins: vec![],
             billing: None,
+            resend: None,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

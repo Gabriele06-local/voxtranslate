@@ -29,6 +29,27 @@ fn from_env_detects_guest_and_billing_modes() {
     assert!((b.pricing.user_rate_per_minute - 0.015).abs() < 1e-9);
     assert_eq!(b.jwt_expiry_hours, 168);
 
+    // AI feature config defaults (no env set).
+    assert_eq!(b.glossary_max_entries, 200);
+    assert_eq!(b.ai.report_model, "llama-3.3-70b-versatile");
+    assert_eq!(b.ai.fallback_model, "llama-3.1-8b-instant");
+    assert!((b.ai.report_base - 0.05).abs() < 1e-9);
+    assert_eq!(b.ai.suggestions_interval_secs, 15);
+    // Resend disabled until all three vars are present.
+    assert!(c.resend.is_none());
+    std::env::set_var("RESEND_API_KEY", "re_x");
+    std::env::set_var("RESEND_FROM_EMAIL", "noreply@vox.example");
+    assert!(Config::from_env().unwrap().resend.is_none()); // still missing name
+    std::env::set_var("RESEND_FROM_NAME", "VoxTranslate");
+    std::env::set_var("CREDITS_REPORT_BASE", "0.10");
+    std::env::set_var("GLOSSARY_MAX_ENTRIES", "50");
+    let c = Config::from_env().unwrap();
+    let b = c.billing.as_ref().unwrap();
+    let r = c.resend.as_ref().expect("resend enabled");
+    assert_eq!(r.from_email, "noreply@vox.example");
+    assert!((b.ai.report_base - 0.10).abs() < 1e-9);
+    assert_eq!(b.glossary_max_entries, 50);
+
     // A missing required key still fails.
     std::env::set_var("DEEPGRAM_API_KEY", "  ");
     assert!(Config::from_env().is_err());
@@ -41,6 +62,11 @@ fn from_env_detects_guest_and_billing_modes() {
         "JWT_SECRET",
         "COST_PER_MINUTE",
         "MARKUP_PERCENTAGE",
+        "RESEND_API_KEY",
+        "RESEND_FROM_EMAIL",
+        "RESEND_FROM_NAME",
+        "CREDITS_REPORT_BASE",
+        "GLOSSARY_MAX_ENTRIES",
     ] {
         std::env::remove_var(k);
     }
