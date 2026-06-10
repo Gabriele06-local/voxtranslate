@@ -82,6 +82,52 @@ pub async fn open_deepgram_ws(
     Ok(ws.split())
 }
 
+/// Detect the spoken language from a short WebM clip (spec 0012).
+///
+/// `detect_language` is REST-only — the streaming WS has no equivalent — so the
+/// auto-detect flow buffers the first ~3s of MediaRecorder output and probes it
+/// here before opening the real streaming connection.
+pub async fn detect_language(
+    http: &reqwest::Client,
+    config: &Config,
+    webm: Vec<u8>,
+) -> Result<(String, Option<f64>), String> {
+    let resp = http
+        .post("https://api.deepgram.com/v1/listen?detect_language=true&model=nova-2")
+        .header(reqwest::header::AUTHORIZATION, format!("Token {}", config.deepgram_key))
+        .header(reqwest::header::CONTENT_TYPE, "audio/webm")
+        .timeout(Duration::from_secs(10))
+        .body(webm)
+        .send()
+        .await
+        .map_err(|e| format!("deepgram detect request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(format!("deepgram detect returned {status}: {detail}"));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("deepgram detect parse failed: {e}"))?;
+    parse_detect_response(&json)
+}
+
+/// Extract `(detected_language, confidence)` from a `/v1/listen` REST response.
+/// Pure, for tests; the language lives at `results.channels[0].detected_language`.
+pub fn parse_detect_response(json: &serde_json::Value) -> Result<(String, Option<f64>), String> {
+    let channel = json
+        .pointer("/results/channels/0")
+        .ok_or("deepgram detect response has no channels")?;
+    let lang = channel
+        .get("detected_language")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("deepgram detect response has no detected_language")?;
+    let confidence = channel.get("language_confidence").and_then(|v| v.as_f64());
+    Ok((lang.to_string(), confidence))
+}
+
 /// Forward audio chunks from the channel to Deepgram, keeping the connection
 /// alive during silence and flushing on close.
 ///
@@ -242,5 +288,48 @@ pub async fn process_transcripts(
                 .to_json(),
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_detect_response_extracts_lang_and_confidence() {
+        let json = serde_json::json!({
+            "results": { "channels": [{
+                "detected_language": "it",
+                "language_confidence": 0.93,
+                "alternatives": [{ "transcript": "ciao a tutti", "confidence": 0.98 }]
+            }]}
+        });
+        let (lang, conf) = parse_detect_response(&json).unwrap();
+        assert_eq!(lang, "it");
+        assert!((conf.unwrap() - 0.93).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_detect_response_confidence_optional() {
+        let json = serde_json::json!({
+            "results": { "channels": [{ "detected_language": "en" }]}
+        });
+        let (lang, conf) = parse_detect_response(&json).unwrap();
+        assert_eq!(lang, "en");
+        assert!(conf.is_none());
+    }
+
+    #[test]
+    fn parse_detect_response_rejects_missing_or_empty() {
+        // No channels at all.
+        assert!(parse_detect_response(&serde_json::json!({})).is_err());
+        // Channel present but no detected_language field.
+        let no_lang = serde_json::json!({ "results": { "channels": [{}] } });
+        assert!(parse_detect_response(&no_lang).is_err());
+        // Empty string is as useless as missing.
+        let empty = serde_json::json!({
+            "results": { "channels": [{ "detected_language": "" }] }
+        });
+        assert!(parse_detect_response(&empty).is_err());
     }
 }

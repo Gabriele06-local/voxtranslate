@@ -17,6 +17,10 @@ fn from_env_detects_guest_and_billing_modes() {
     let c = Config::from_env().unwrap();
     assert_eq!(c.port, 3001);
     assert!(!c.billing_enabled());
+    assert_eq!(c.auto_detect_buffer_ms, 3000); // default
+
+    std::env::set_var("AUTO_DETECT_BUFFER_MS", "4500");
+    assert_eq!(Config::from_env().unwrap().auto_detect_buffer_ms, 4500);
 
     // Billing mode activates when the three core values are present.
     std::env::set_var("DATABASE_URL", "postgres://x");
@@ -67,6 +71,7 @@ fn from_env_detects_guest_and_billing_modes() {
         "RESEND_FROM_NAME",
         "CREDITS_REPORT_BASE",
         "GLOSSARY_MAX_ENTRIES",
+        "AUTO_DETECT_BUFFER_MS",
     ] {
         std::env::remove_var(k);
     }

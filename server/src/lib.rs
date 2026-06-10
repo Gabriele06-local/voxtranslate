@@ -624,19 +624,28 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                     Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
                         Ok(ClientMessage::Start) => {
                             if audio_tx.is_none() {
-                                audio_tx = start_speaking_session(
-                                    &state,
-                                    deepgram::SpeakerCtx {
-                                        room: room.clone(),
-                                        speaker_id: id.clone(),
-                                        speaker_name: name.clone(),
-                                        speaker_lang: lang.clone(),
-                                        session_id,
-                                        speaker_user_id: billed_user,
-                                        glossary: state.glossary.clone(),
-                                    },
-                                )
-                                .await;
+                                // Live language: auto-detect / set_lang may have
+                                // updated it since join, so never trust `lang`.
+                                let live_lang = state
+                                    .rooms
+                                    .peer_lang(&room, &id)
+                                    .unwrap_or_else(|| lang.clone());
+                                let ctx = deepgram::SpeakerCtx {
+                                    room: room.clone(),
+                                    speaker_id: id.clone(),
+                                    speaker_name: name.clone(),
+                                    speaker_lang: live_lang.clone(),
+                                    session_id,
+                                    speaker_user_id: billed_user,
+                                    glossary: state.glossary.clone(),
+                                };
+                                audio_tx = if live_lang == "auto" {
+                                    // Detection pending: buffer → REST probe →
+                                    // stream (spec 0012).
+                                    Some(start_detecting_session(&state, ctx, participant_row))
+                                } else {
+                                    start_speaking_session(&state, ctx).await
+                                };
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,
@@ -694,7 +703,13 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         room: room.clone(),
                                         speaker_id: id.clone(),
                                         speaker_name: name.clone(),
-                                        speaker_lang: lang.clone(),
+                                        // Live language (post-detection); "auto"
+                                        // is still possible pre-probe — the
+                                        // translator handles it.
+                                        speaker_lang: state
+                                            .rooms
+                                            .peer_lang(&room, &id)
+                                            .unwrap_or_else(|| lang.clone()),
                                         session_id,
                                         speaker_user_id: billed_user,
                                         glossary: state.glossary.clone(),
@@ -749,6 +764,48 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 }
                                 .to_json(),
                             );
+                        }
+                        Ok(ClientMessage::SetLang { lang: new_lang }) => {
+                            // Manual correction (spec 0012). The audio session is
+                            // NOT restarted here: a mid-stream Deepgram reopen
+                            // needs a fresh WebM header, so the client sends
+                            // stop + start around this message.
+                            let new_lang = new_lang.trim().to_lowercase();
+                            let valid = !new_lang.is_empty()
+                                && new_lang.len() <= 8
+                                && new_lang != "auto"
+                                && new_lang
+                                    .chars()
+                                    .all(|c| c.is_ascii_alphanumeric() || c == '-');
+                            if !valid {
+                                let _ = out_tx.send(
+                                    ServerMessage::Error {
+                                        message: "invalid language code".to_string(),
+                                        code: Some("bad_lang".to_string()),
+                                    }
+                                    .to_json(),
+                                );
+                            } else if state.rooms.set_peer_lang(&room, &id, &new_lang) {
+                                if let (Some(pid), Some(svc)) =
+                                    (participant_row, state.transcripts.as_ref())
+                                {
+                                    if let Err(e) =
+                                        svc.update_participant_lang(pid, &new_lang).await
+                                    {
+                                        tracing::error!("participant lang update failed: {e}");
+                                    }
+                                }
+                                // `confidence: None` marks a manual correction.
+                                state.rooms.broadcast(
+                                    &room,
+                                    &ServerMessage::LanguageDetected {
+                                        peer_id: id.clone(),
+                                        lang: new_lang,
+                                        confidence: None,
+                                    }
+                                    .to_json(),
+                                );
+                            }
                         }
                         Err(_) => {} // unknown / malformed control frame
                     },
@@ -876,6 +933,149 @@ async fn start_speaking_session(
             None
         }
     }
+}
+
+/// Max bytes buffered while detecting (~3s of 32kbps Opus is ~12 KiB; the cap
+/// guards memory against pathological encoders).
+const MAX_DETECT_BUFFER: usize = 256 * 1024;
+
+/// Auto-detect variant of [`start_speaking_session`] (spec 0012): buffer the
+/// first `AUTO_DETECT_BUFFER_MS` of audio, probe the language via Deepgram's
+/// REST endpoint (`detect_language` has no streaming equivalent), then open the
+/// real streaming connection with the detected language and replay the buffer.
+/// The buffer is a valid clip AND a valid stream prefix because MediaRecorder's
+/// chunk #1 carries the WebM header. Probe failure falls back to English and
+/// surfaces a `detect_failed` error to the speaker.
+fn start_detecting_session(
+    state: &AppState,
+    ctx: deepgram::SpeakerCtx,
+    participant_row: Option<Uuid>,
+) -> UnboundedSender<Vec<u8>> {
+    let (audio_tx, mut audio_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let state = state.clone();
+    tokio::spawn(async move {
+        // Phase 1 — buffer chunks until the deadline, the size cap, or an early
+        // stop (the speaker muted / disconnected → channel closed).
+        let deadline =
+            tokio::time::sleep(Duration::from_millis(state.config.auto_detect_buffer_ms));
+        tokio::pin!(deadline);
+        let mut buf: Vec<Vec<u8>> = Vec::new();
+        let mut buffered = 0usize;
+        let mut channel_open = true;
+        loop {
+            tokio::select! {
+                chunk = audio_rx.recv() => match chunk {
+                    Some(c) => {
+                        buffered += c.len();
+                        buf.push(c);
+                        if buffered >= MAX_DETECT_BUFFER {
+                            break;
+                        }
+                    }
+                    None => {
+                        channel_open = false;
+                        break;
+                    }
+                },
+                _ = &mut deadline => break,
+            }
+        }
+        if buf.is_empty() {
+            return; // stopped before any audio arrived — nothing to detect
+        }
+
+        // Phase 2 — REST probe on the buffered clip (non-consuming: the chunks
+        // are replayed into the streaming connection in phase 4).
+        let clip = buf.concat();
+        let (lang, confidence) =
+            match deepgram::detect_language(&state.http, &state.config, clip).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("language detect failed: {e}");
+                    state.rooms.relay_to_peer(
+                        &ctx.room,
+                        &ctx.speaker_id,
+                        &ServerMessage::Error {
+                            message: "language detection failed — using English".to_string(),
+                            code: Some("detect_failed".to_string()),
+                        }
+                        .to_json(),
+                    );
+                    ("en".to_string(), None)
+                }
+            };
+
+        // Phase 3 — apply, unless a manual `set_lang` already resolved it while
+        // we were probing (the user's explicit correction always wins).
+        let live = state.rooms.peer_lang(&ctx.room, &ctx.speaker_id);
+        let final_lang = if live.as_deref() == Some("auto") {
+            state.rooms.set_peer_lang(&ctx.room, &ctx.speaker_id, &lang);
+            if let (Some(pid), Some(svc)) = (participant_row, state.transcripts.as_ref()) {
+                if let Err(e) = svc.update_participant_lang(pid, &lang).await {
+                    tracing::error!("participant lang update failed: {e}");
+                }
+            }
+            state.rooms.broadcast(
+                &ctx.room,
+                &ServerMessage::LanguageDetected {
+                    peer_id: ctx.speaker_id.clone(),
+                    lang: lang.clone(),
+                    confidence,
+                }
+                .to_json(),
+            );
+            lang
+        } else {
+            live.unwrap_or(lang)
+        };
+        if !channel_open {
+            return; // already stopped — the lang is recorded for the next start
+        }
+
+        // Phase 4 — open the real streaming session and replay the buffer in
+        // order, then bridge live chunks until the speaker stops.
+        let ctx = deepgram::SpeakerCtx {
+            speaker_lang: final_lang.clone(),
+            ..ctx
+        };
+        match deepgram::open_deepgram_ws(&final_lang, &state.config).await {
+            Ok((dg_sink, dg_source)) => {
+                let (dg_tx, dg_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+                tokio::spawn(deepgram::forward_audio(dg_rx, dg_sink));
+                tokio::spawn(deepgram::process_transcripts(
+                    dg_source,
+                    state.rooms.clone(),
+                    state.translator.clone(),
+                    state.moderator.clone(),
+                    ctx,
+                    state.transcripts.clone(),
+                ));
+                for chunk in buf {
+                    if dg_tx.send(chunk).is_err() {
+                        return;
+                    }
+                }
+                while let Some(chunk) = audio_rx.recv().await {
+                    if dg_tx.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("deepgram open after detect failed: {e}");
+                state.rooms.relay_to_peer(
+                    &ctx.room,
+                    &ctx.speaker_id,
+                    &ServerMessage::Error {
+                        message: "speech service unavailable".to_string(),
+                        code: None,
+                    }
+                    .to_json(),
+                );
+            }
+        }
+    });
+    audio_tx
 }
 
 /// Forward queued JSON strings to a WebSocket as text frames until the channel

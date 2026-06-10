@@ -219,6 +219,21 @@ impl TranscriptService {
         .await
     }
 
+    /// Update a participant's language once auto-detect resolves it (or the user
+    /// corrects it mid-call) so exports/PDF defaults reflect what was spoken.
+    pub async fn update_participant_lang(
+        &self,
+        participant_id: Uuid,
+        lang: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE session_participants SET lang = $2 WHERE id = $1")
+            .bind(participant_id)
+            .bind(lang)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Stamp a participant's departure.
     pub async fn participant_left(&self, participant_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query(

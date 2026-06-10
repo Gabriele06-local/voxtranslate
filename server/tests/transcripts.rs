@@ -670,3 +670,80 @@ async fn guest_only_session_is_purged_on_end() {
             .unwrap();
     assert_eq!(events, 0, "no orphaned guest events");
 }
+
+#[tokio::test]
+async fn set_lang_resolves_auto_and_updates_participant_row() {
+    // Auto-detect correction path (spec 0012), no Deepgram needed: a peer joins
+    // with lang=auto, corrects it via `set_lang`, and everyone gets the
+    // `language_detected` broadcast while the participant row is updated.
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (_uid, jwt) = login(&srv, "Aura").await;
+    let room = format!("al-{}", Uuid::new_v4().simple());
+
+    let (frame, mut auto_ws) = connect_first(
+        srv.addr,
+        &format!("room={room}&lang=auto&id=auto-peer&token={jwt}"),
+    )
+    .await;
+    assert_eq!(frame["type"], "room_joined");
+    let session_id = Uuid::parse_str(frame["session_id"].as_str().unwrap()).unwrap();
+
+    // A second (guest, private-room) peer sees the pending state...
+    let (frame_b, mut other_ws) =
+        connect_first(srv.addr, &format!("room={room}&lang=it&id=other-peer")).await;
+    assert_eq!(frame_b["peers"][0]["lang"], "auto");
+
+    // ...and while detection is pending, "auto" is never a fan-out target: the
+    // other peer's chat carries only its own-language echo (no Groq call), and
+    // crucially no "auto" entry.
+    other_ws
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::json!({ "type": "chat", "text": "ciao" }).to_string(),
+        ))
+        .await
+        .unwrap();
+    let chat = wait_for(&mut other_ws, "chat_message").await;
+    assert_eq!(chat["original"], "ciao");
+    let translations = chat["translations"].as_object().unwrap();
+    assert_eq!(translations.len(), 1, "source-lang echo only");
+    assert!(translations.contains_key("it") && !translations.contains_key("auto"));
+
+    // Garbage codes are rejected (trim/lowercase happens first).
+    for bad in ["auto", "", "x".repeat(9).as_str(), "p?q"] {
+        auto_ws
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({ "type": "set_lang", "lang": bad }).to_string(),
+            ))
+            .await
+            .unwrap();
+        let err = wait_for(&mut auto_ws, "error").await;
+        assert_eq!(err["code"], "bad_lang");
+    }
+
+    // Manual correction: both peers get the broadcast, confidence omitted.
+    auto_ws
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::json!({ "type": "set_lang", "lang": " ES " }).to_string(),
+        ))
+        .await
+        .unwrap();
+    let det = wait_for(&mut auto_ws, "language_detected").await;
+    assert_eq!(det["peer_id"], "auto-peer");
+    assert_eq!(det["lang"], "es");
+    assert!(det.get("confidence").is_none(), "manual => no confidence");
+    let det_other = wait_for(&mut other_ws, "language_detected").await;
+    assert_eq!(det_other["lang"], "es");
+
+    // The participant row now reflects what's actually spoken.
+    let lang: String = sqlx::query_scalar(
+        "SELECT lang FROM session_participants WHERE session_id = $1 AND peer_id = 'auto-peer'",
+    )
+    .bind(session_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(lang, "es");
+}

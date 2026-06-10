@@ -12,6 +12,7 @@ import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
+import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -549,6 +550,25 @@ async function handleServer(msg: any): Promise<void> {
       }
       updateParticipantsList();
       break;
+    case 'language_detected': {
+      // A peer's "auto" was resolved by the server probe (confidence present)
+      // or manually corrected via set_lang (confidence absent). Refresh their
+      // badges; for our own detection, offer the Change toast (spec 0012).
+      const info = peerNames.get(msg.peer_id);
+      if (info) info.lang = msg.lang;
+      const badge = videoGrid.querySelector(`[data-peer="${cssEsc(msg.peer_id)}"] .peer-lang`);
+      if (badge) badge.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
+      if (msg.peer_id === myId && session) {
+        session.lang = msg.lang;
+        chat?.setMyLang(msg.lang);
+        // Manual-correction echo (no confidence) must not re-open the toast,
+        // or accepting a correction would loop forever.
+        if (msg.confidence != null) onLanguageDetected(msg.lang);
+        else toast(t('langChanged'));
+      }
+      updateParticipantsList();
+      break;
+    }
     case 'subtitle_interim':
       showSubtitle(msg.speaker_id, msg.text, true);
       break;
@@ -564,7 +584,10 @@ async function handleServer(msg: any): Promise<void> {
       }
       // Speak only foreign-language speakers (same-language → you hear their
       // real voice). Their original WebRTC audio is muted by applyAudioMode().
-      if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang) speak(text, myLang);
+      // While our own lang is still "auto" (detection pending) there is no
+      // valid TTS voice/translation to pick — skip until it resolves.
+      if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang && myLang !== 'auto')
+        speak(text, myLang);
       break;
     }
     // ---- Billing (only sent to authenticated speakers) ----
@@ -618,6 +641,9 @@ async function handleServer(msg: any): Promise<void> {
       } else if (msg.code === 'banned') {
         leaveCall();
         homeStatusMsg(msg.message || t('bannedMsg'), true);
+      } else if (msg.code === 'detect_failed') {
+        // Auto-detect probe failed; the server fell back to English (spec 0012).
+        toast(t('langDetectFailed'));
       } else if (msg.message) {
         // Non-fatal; surface transiently in the call header area.
         callVis.textContent = msg.message;
@@ -1336,6 +1362,7 @@ function leaveCall(): void {
   participantsPanel.classList.add('closed');
   setBookmarkSession(null); // hides the 🔖 button + closes its panel
   setGlossaryRoom(null); // hides the 📖 badge + closes the editor
+  dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
@@ -1986,6 +2013,14 @@ initBookmarks({ layout: layoutVideos }); // panel toggles re-flow the video grid
 $('btn-glossary-home').innerHTML = icon('book', 18);
 $('glossary-close').innerHTML = icon('close', 16);
 initGlossary({ show }); // app's show() gives the modal its focus trap
+// "Change" in the detected-language toast (spec 0012): correct the server,
+// then restart capture so the next Deepgram stream opens in the new language.
+initLangDetect({
+  send: (m) => ws?.send(JSON.stringify(m)),
+  restartCapture: () => {
+    if (micOn) audioCapture?.restart();
+  },
+});
 
 // ---- Emoji picker ----------------------------------------------------------
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];

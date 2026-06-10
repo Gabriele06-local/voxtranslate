@@ -11,6 +11,7 @@ export const ENDONYM: Record<string, string> = {
 export const FLAG: Record<string, string> = {
   it: '🇮🇹', en: '🇬🇧', es: '🇪🇸', fr: '🇫🇷',
   de: '🇩🇪', pt: '🇵🇹', ja: '🇯🇵', zh: '🇨🇳',
+  auto: '🌐', // detection pending (spec 0012) — resolved server-side after ~3s
 };
 
 type Dict = Record<string, string>;
@@ -82,6 +83,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: 'Glossary saved', glossaryLoadFailed: 'Something went wrong — try again',
     glossaryRowInvalid: 'Each row needs both terms and two different languages',
     glossaryActiveTip: 'Room glossary active — click to edit',
+    langAuto: 'Auto-detect', langDetected: 'Detected language', langChange: 'Change',
+    langChanged: 'Language updated', langDetectFailed: 'Language detection failed — using English',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -149,6 +152,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: 'Glossario salvato', glossaryLoadFailed: 'Qualcosa è andato storto — riprova',
     glossaryRowInvalid: 'Ogni riga richiede entrambi i termini e due lingue diverse',
     glossaryActiveTip: 'Glossario attivo — clicca per modificare',
+    langAuto: 'Rilevamento automatico', langDetected: 'Lingua rilevata', langChange: 'Cambia',
+    langChanged: 'Lingua aggiornata', langDetectFailed: 'Rilevamento della lingua non riuscito — verrà usato l’inglese',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -216,6 +221,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: 'Glosario guardado', glossaryLoadFailed: 'Algo salió mal — inténtalo de nuevo',
     glossaryRowInvalid: 'Cada fila necesita ambos términos y dos idiomas distintos',
     glossaryActiveTip: 'Glosario activo — haz clic para editar',
+    langAuto: 'Detección automática', langDetected: 'Idioma detectado', langChange: 'Cambiar',
+    langChanged: 'Idioma actualizado', langDetectFailed: 'No se pudo detectar el idioma — se usará inglés',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -283,6 +290,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: 'Glossaire enregistré', glossaryLoadFailed: 'Une erreur est survenue — réessayez',
     glossaryRowInvalid: 'Chaque ligne requiert les deux termes et deux langues différentes',
     glossaryActiveTip: 'Glossaire actif — cliquez pour modifier',
+    langAuto: 'Détection automatique', langDetected: 'Langue détectée', langChange: 'Changer',
+    langChanged: 'Langue mise à jour', langDetectFailed: 'Échec de la détection de la langue — l’anglais sera utilisé',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -350,6 +359,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: 'Glossar gespeichert', glossaryLoadFailed: 'Etwas ist schiefgelaufen — bitte erneut versuchen',
     glossaryRowInvalid: 'Jede Zeile braucht beide Begriffe und zwei verschiedene Sprachen',
     glossaryActiveTip: 'Glossar aktiv — zum Bearbeiten klicken',
+    langAuto: 'Automatisch erkennen', langDetected: 'Erkannte Sprache', langChange: 'Ändern',
+    langChanged: 'Sprache aktualisiert', langDetectFailed: 'Spracherkennung fehlgeschlagen — Englisch wird verwendet',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -417,6 +428,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: 'Glossário salvo', glossaryLoadFailed: 'Algo deu errado — tente novamente',
     glossaryRowInvalid: 'Cada linha precisa dos dois termos e de dois idiomas diferentes',
     glossaryActiveTip: 'Glossário ativo — clique para editar',
+    langAuto: 'Deteção automática', langDetected: 'Idioma detetado', langChange: 'Alterar',
+    langChanged: 'Idioma atualizado', langDetectFailed: 'Falha na deteção do idioma — será usado inglês',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -484,6 +497,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: '用語集を保存しました', glossaryLoadFailed: 'エラーが発生しました — もう一度お試しください',
     glossaryRowInvalid: '各行に両方の用語と異なる2つの言語が必要です',
     glossaryActiveTip: '用語集が有効 — クリックで編集',
+    langAuto: '自動検出', langDetected: '検出された言語', langChange: '変更',
+    langChanged: '言語を更新しました', langDetectFailed: '言語を検出できませんでした — 英語を使用します',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -551,6 +566,8 @@ export const I18N: Record<string, Dict> = {
     glossarySaved: '术语表已保存', glossaryLoadFailed: '出错了 — 请重试',
     glossaryRowInvalid: '每行都需要两个术语和两种不同的语言',
     glossaryActiveTip: '术语表已启用 — 点击编辑',
+    langAuto: '自动检测', langDetected: '检测到的语言', langChange: '更改',
+    langChanged: '语言已更新', langDetectFailed: '语言检测失败 — 将使用英语',
   },
 };
 

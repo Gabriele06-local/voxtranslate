@@ -175,12 +175,18 @@ struct ChatMessage {
 /// has terms for this language direction. Separated from the HTTP call for
 /// testing.
 fn translation_prompt(source: &str, target: &str, terms: &[(String, String)]) -> String {
+    // "auto" = detection still pending (spec 0012): chat can arrive before the
+    // speech probe resolves, so let the model identify the source itself.
+    let src_clause = if source == "auto" {
+        "Detect the source language yourself, then translate".to_string()
+    } else {
+        format!("Translate from {}", lang_name(source))
+    };
     let mut system = format!(
-        "You are a real-time speech translator. Translate from {src} to {tgt}. \
+        "You are a real-time speech translator. {src_clause} to {tgt}. \
          Output ONLY the translation. No quotes, no explanation, no preamble. \
          Preserve tone, register, and speech patterns. Handle informal/spoken \
          language naturally. If text is already in target language, return it unchanged.",
-        src = lang_name(source),
         tgt = lang_name(target),
     );
     if !terms.is_empty() {
@@ -222,6 +228,14 @@ mod tests {
         assert_eq!(lang_name("zh"), "Chinese");
         assert_eq!(lang_name("ja"), "Japanese");
         assert_eq!(lang_name("xx"), "xx");
+    }
+
+    #[test]
+    fn translation_prompt_auto_source_asks_model_to_detect() {
+        let auto = translation_prompt("auto", "en", &[]);
+        assert!(auto.contains("Detect the source language yourself"));
+        assert!(auto.contains("English"));
+        assert!(!auto.contains("Translate from"));
     }
 
     #[test]

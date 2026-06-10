@@ -52,6 +52,30 @@ export class AudioCapture {
     }
   }
 
+  /**
+   * Stop the current capture and immediately begin a fresh one (spec 0012:
+   * after a language change the server opens a new Deepgram stream, which
+   * needs a header-bearing first WebM chunk — only a new MediaRecorder
+   * produces that).
+   *
+   * MediaRecorder's `onstop` fires asynchronously, so a naive `stop(); start()`
+   * would put the 'start' control frame on the wire BEFORE the old session's
+   * 'stop', killing the new session. Chain the restart inside `onstop` instead.
+   */
+  restart(): void {
+    const old = this.recorder;
+    this.active = false;
+    if (old && old.state !== 'inactive') {
+      old.onstop = () => {
+        this.sendControl('stop');
+        this.start();
+      };
+      old.stop();
+    } else {
+      this.start();
+    }
+  }
+
   /** Mute = stop sending audio to STT; unmute = resume. */
   setMuted(muted: boolean): void {
     if (muted) this.stop();

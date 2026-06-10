@@ -50,6 +50,12 @@ pub enum ClientMessage {
     HandRaise {
         raised: bool,
     },
+    /// Manual language correction (spec 0012): overrides a wrong auto-detect
+    /// result. The client restarts capture so the next Deepgram stream opens
+    /// with the new language.
+    SetLang {
+        lang: String,
+    },
 }
 
 // --- Server -> Client ------------------------------------------------------
@@ -146,6 +152,16 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
         entries: usize,
+    },
+
+    /// A peer's language was resolved (spec 0012): auto-detect completed
+    /// (`confidence` from Deepgram) or a manual `set_lang` correction
+    /// (`confidence` omitted). Broadcast so peers update language badges.
+    LanguageDetected {
+        peer_id: String,
+        lang: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        confidence: Option<f64>,
     },
 
     /// Live partial transcript for a speaker (original language), broadcast so
@@ -383,6 +399,23 @@ mod tests {
         .to_json();
         assert!(h.contains("\"type\":\"hand_raised\"") && h.contains("\"raised\":true"));
 
+        // Language detection (spec 0012): confidence omitted on manual set_lang.
+        let det = ServerMessage::LanguageDetected {
+            peer_id: "a".into(),
+            lang: "it".into(),
+            confidence: Some(0.97),
+        }
+        .to_json();
+        assert!(det.contains("\"type\":\"language_detected\""));
+        assert!(det.contains("\"lang\":\"it\"") && det.contains("\"confidence\":0.97"));
+        let manual = ServerMessage::LanguageDetected {
+            peer_id: "a".into(),
+            lang: "fr".into(),
+            confidence: None,
+        }
+        .to_json();
+        assert!(!manual.contains("confidence"));
+
         // Glossary badge (spec 0011): name omitted when None.
         let g = ServerMessage::GlossaryActive {
             name: Some("Legal".into()),
@@ -445,6 +478,10 @@ mod tests {
             serde_json::from_str::<ClientMessage>(r#"{"type":"hand_raise","raised":true}"#)
                 .unwrap(),
             ClientMessage::HandRaise { raised: true }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(r#"{"type":"set_lang","lang":"it"}"#).unwrap(),
+            ClientMessage::SetLang { lang } if lang == "it"
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
     }

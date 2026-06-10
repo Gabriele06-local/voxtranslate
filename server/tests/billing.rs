@@ -167,6 +167,7 @@ mod guest_mode {
             groq_key: "g".into(),
             port: 0,
             allowed_origins: vec![],
+            auto_detect_buffer_ms: 3000,
             billing: None,
             resend: None,
         };

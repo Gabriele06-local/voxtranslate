@@ -28,6 +28,7 @@ fn make_state() -> (AppState, bool) {
                 groq_key: "dummy".into(),
                 port: 0,
                 allowed_origins: vec![],
+                auto_detect_buffer_ms: 3000,
                 billing: None,
                 resend: None,
             }),
@@ -305,6 +306,7 @@ async fn deepgram_unavailable_sends_error() {
         groq_key: groq,
         port: 0,
         allowed_origins: vec![],
+        auto_detect_buffer_ms: 3000,
         billing: None,
         resend: None,
     });

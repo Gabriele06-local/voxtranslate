@@ -129,17 +129,42 @@ impl RoomManager {
     }
 
     /// Distinct languages present in the room, excluding `exclude_id`. Used by the
-    /// translation fan-out to know which languages to translate into.
+    /// translation fan-out to know which languages to translate into. Peers still
+    /// in `"auto"` (detection pending) are skipped — "auto" is never a translation
+    /// target.
     pub fn get_room_languages(&self, room_id: &str, exclude_id: &str) -> Vec<String> {
         let mut langs: Vec<String> = Vec::new();
         if let Some(room) = self.rooms.get(room_id) {
             for p in room.peers.iter() {
-                if p.id != exclude_id && !langs.contains(&p.lang) {
+                if p.id != exclude_id && p.lang != "auto" && !langs.contains(&p.lang) {
                     langs.push(p.lang.clone());
                 }
             }
         }
         langs
+    }
+
+    /// Update a peer's language in place (auto-detect result or a manual
+    /// `set_lang` correction). Returns `false` when the room/peer is gone.
+    pub fn set_peer_lang(&self, room_id: &str, peer_id: &str, lang: &str) -> bool {
+        if let Some(mut room) = self.rooms.get_mut(room_id) {
+            if let Some(p) = room.peers.iter_mut().find(|p| p.id == peer_id) {
+                p.lang = lang.to_string();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// A peer's *current* language (live, post-detection) — the `lang` captured
+    /// at join time goes stale once auto-detect or `set_lang` updates it.
+    pub fn peer_lang(&self, room_id: &str, peer_id: &str) -> Option<String> {
+        self.rooms
+            .get(room_id)?
+            .peers
+            .iter()
+            .find(|p| p.id == peer_id)
+            .map(|p| p.lang.clone())
     }
 
     /// Snapshot of all public rooms with their online members, for the lobby.
@@ -258,6 +283,27 @@ mod tests {
         let mut langs = rm.get_room_languages("r", "a"); // exclude a(it); distinct of b,c,d
         langs.sort();
         assert_eq!(langs, vec!["en".to_string(), "it".to_string()]);
+    }
+
+    #[test]
+    fn auto_lang_excluded_from_targets_until_set() {
+        let rm = RoomManager::new();
+        for (id, l) in [("a", "it"), ("b", "auto")] {
+            let (p, r) = peer(id, l);
+            std::mem::forget(r);
+            rm.join("r", p, Visibility::Public).unwrap();
+        }
+        // b is still detecting -> no "auto" target for a's fan-out.
+        assert!(rm.get_room_languages("r", "a").is_empty());
+
+        assert!(rm.set_peer_lang("r", "b", "en"));
+        assert_eq!(rm.get_room_languages("r", "a"), vec!["en".to_string()]);
+        assert_eq!(rm.peer_lang("r", "b").as_deref(), Some("en"));
+        assert_eq!(rm.peer_lang("r", "a").as_deref(), Some("it"));
+
+        assert!(!rm.set_peer_lang("r", "ghost", "fr"), "unknown peer");
+        assert!(!rm.set_peer_lang("nope", "b", "fr"), "unknown room");
+        assert!(rm.peer_lang("r", "ghost").is_none());
     }
 
     #[test]

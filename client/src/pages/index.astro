@@ -58,6 +58,7 @@ const LANGS = [
             <label class="field grow">
               <span class="field-label" data-i18n="langLabel"></span>
               <select id="lang">
+                <option value="auto" data-i18n="langAuto"></option>
                 {LANGS.map((l) => <option value={l.code}>{l.name}</option>)}
               </select>
             </label>
@@ -766,6 +767,28 @@ const LANGS = [
       opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none;
     }
     :global(.vox-toast.show) { opacity: 1; transform: translate(-50%, 0); }
+
+    /* Detected-language toast (spec 0012, created in JS). Interactive — it
+       carries a Change button/picker — so it can't reuse the pointer-events:none
+       .vox-toast. */
+    :global(.lang-toast) {
+      position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 16px);
+      z-index: 80; max-width: min(90vw, 480px); padding: 10px 14px; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      font-size: 0.9rem; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      opacity: 0; transition: opacity 0.25s, transform 0.25s;
+      display: flex; align-items: center; gap: 12px;
+    }
+    :global(.lang-toast.show) { opacity: 1; transform: translate(-50%, 0); }
+    :global(.lang-toast .lang-toast-change) {
+      border: 1px solid var(--border); background: transparent; color: var(--accent);
+      border-radius: 8px; padding: 5px 12px; font-size: 0.85rem; cursor: pointer; white-space: nowrap;
+    }
+    :global(.lang-toast .lang-toast-change:hover) { border-color: var(--accent); }
+    :global(.lang-toast .lang-toast-select) {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 5px 8px; font-size: 0.85rem;
+    }
 
     /* Footer legal links on login/home. */
     .legal-footer { text-align: center; padding: 12px; font-size: 0.78rem; color: var(--muted); }

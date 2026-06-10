@@ -16,6 +16,9 @@ pub struct Config {
     pub port: u16,
     /// Allowed CORS origins; empty means permissive (dev).
     pub allowed_origins: Vec<String>,
+    /// How much speech (ms) to buffer before the language-detect REST probe
+    /// when a peer joins with `lang=auto` (spec 0012).
+    pub auto_detect_buffer_ms: u64,
     /// Present only when auth/billing is configured.
     pub billing: Option<BillingConfig>,
     /// Present only when all `RESEND_*` vars are set; gates follow-up email.
@@ -136,6 +139,7 @@ impl Config {
             groq_key,
             port,
             allowed_origins,
+            auto_detect_buffer_ms: parse_or("AUTO_DETECT_BUFFER_MS", 3000u64),
             billing,
             resend,
         })
@@ -290,6 +294,7 @@ impl Config {
             groq_key: "dummy".into(),
             port: 0,
             allowed_origins: vec![],
+            auto_detect_buffer_ms: 3000,
             billing: Some(BillingConfig {
                 database_url: database_url.into(),
                 google_client_id: "test-client".into(),
