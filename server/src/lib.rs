@@ -6,10 +6,12 @@
 //!
 //! `app()` builds the router from an [`AppState`]; `serve()` is the binary entry.
 
+pub mod admin;
 pub mod api;
 pub mod auth;
 pub mod billing;
 pub mod config;
+pub mod content;
 pub mod db;
 pub mod deepgram;
 pub mod groq;
@@ -117,8 +119,14 @@ impl AppState {
             let min_join = usd(billing.pricing.min_balance_to_join);
             state.billing = Some(BillingService::new(pool.clone(), min_join));
             state.safety = Some(SafetyService::new(pool.clone()));
+            // Layer the DB-managed blocklist over the env baseline.
+            let db_terms = content::load_blocklist_terms(&pool).await;
+            state.moderator = Arc::new(Moderator::from_env().with_terms(db_terms));
             state.pool = Some(pool);
-            tracing::info!("auth/billing enabled — database connected, migrations applied");
+            tracing::info!(
+                "auth/billing enabled — database connected, migrations applied, {} blocklist terms",
+                state.moderator.len()
+            );
         } else {
             tracing::info!("guest-only mode — no auth/billing configured");
         }
@@ -144,6 +152,15 @@ pub fn app(state: AppState) -> Router {
         .route("/api/user/consent", post(api::submit_consent))
         .route("/api/user/data", get(api::export_data))
         .route("/api/user", axum::routing::delete(api::delete_account))
+        // Public, read-only managed content (client merges over its bundled copy).
+        .route("/api/content/i18n", get(content::get_i18n))
+        .route("/api/content/legal/{slug}", get(content::get_legal))
+        // Backoffice admin actions (Directus → secret-guarded, server-to-server).
+        .route("/api/admin/ban", post(admin::ban))
+        .route("/api/admin/unban", post(admin::unban))
+        .route("/api/admin/credit", post(admin::credit))
+        .route("/api/admin/report/resolve", post(admin::resolve_report))
+        .route("/api/admin/user/delete", post(admin::delete_user))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)

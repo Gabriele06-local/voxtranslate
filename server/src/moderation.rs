@@ -52,6 +52,28 @@ impl Moderator {
         }
     }
 
+    /// Merge in more terms (e.g. the `blocklist_terms` table) and return self.
+    /// Used at startup to layer the DB-managed list over the env baseline.
+    pub fn with_terms<I: IntoIterator<Item = String>>(mut self, terms: I) -> Self {
+        for t in terms {
+            let t = t.trim().to_lowercase();
+            if !t.is_empty() {
+                self.terms.insert(t);
+            }
+        }
+        self
+    }
+
+    /// Number of active blocklist terms (for startup logging / introspection).
+    pub fn len(&self) -> usize {
+        self.terms.len()
+    }
+
+    /// Whether the blocklist is empty (clippy's companion to `len`).
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty()
+    }
+
     /// Classify a transcript. Matching is whole-word (alphanumeric runs), so
     /// "assassin" never trips a substring like "ass".
     pub fn severity(&self, text: &str) -> Severity {

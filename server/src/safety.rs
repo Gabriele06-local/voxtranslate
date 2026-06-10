@@ -110,6 +110,15 @@ impl SafetyService {
         Ok(())
     }
 
+    /// Lift a ban (clear `banned_until`/`banned_reason`).
+    pub async fn unban_user(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE users SET banned_until = NULL, banned_reason = NULL WHERE id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// All data held on the user, as one JSON document (GDPR portability).
     pub async fn export_user_data(&self, user_id: Uuid) -> Result<serde_json::Value, sqlx::Error> {
         let json: String = sqlx::query_scalar(EXPORT_SQL)

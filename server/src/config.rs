@@ -33,6 +33,9 @@ pub struct BillingConfig {
     pub stripe_cancel_url: String,
     /// Optional cap on guest (un-authenticated) session length.
     pub guest_max_minutes: Option<u64>,
+    /// Shared secret the Directus backoffice presents to the `/api/admin/*`
+    /// endpoints (server-to-server). When absent, admin endpoints are disabled.
+    pub admin_api_secret: Option<String>,
     pub pricing: PricingConfig,
 }
 
@@ -115,6 +118,10 @@ impl BillingConfig {
             guest_max_minutes: env::var("GUEST_MAX_MINUTES")
                 .ok()
                 .and_then(|s| s.parse().ok()),
+            admin_api_secret: env::var("ADMIN_API_SECRET")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             pricing: PricingConfig::from_env(),
         }
     }
@@ -199,6 +206,7 @@ impl Config {
                 stripe_success_url: String::new(),
                 stripe_cancel_url: String::new(),
                 guest_max_minutes: None,
+                admin_api_secret: Some("test-admin-secret".into()),
                 pricing: PricingConfig {
                     cost_per_minute: 0.008,
                     markup_percentage: 0.25,

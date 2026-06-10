@@ -869,3 +869,319 @@ mod safety_ws {
         assert_eq!(priv_guest["type"], "room_joined");
     }
 }
+
+mod admin_api {
+    //! Secret-guarded backoffice actions (ban/unban/credit/resolve/delete) + audit.
+    //! DB-gated. The shared secret matches `Config::test_with_billing`.
+
+    use super::*;
+    use std::net::SocketAddr;
+    use uuid::Uuid;
+    use voxtranslate_server::auth::{upsert_google_user, GoogleIdentity};
+    use voxtranslate_server::db::Pool;
+
+    const SECRET: &str = "test-admin-secret";
+
+    struct Server {
+        addr: SocketAddr,
+        pool: Pool,
+    }
+
+    async fn setup() -> Option<Server> {
+        let (state, pool) = billing_state("admin-secret", 2.0).await?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app(state)).await;
+        });
+        Some(Server { addr, pool })
+    }
+
+    async fn make_user(pool: &Pool) -> Uuid {
+        let identity = GoogleIdentity {
+            google_id: format!("g-{}", Uuid::new_v4()),
+            email: format!("{}@x.com", Uuid::new_v4()),
+            name: "Adm".into(),
+            avatar_url: None,
+        };
+        upsert_google_user(pool, &identity, rust_decimal::Decimal::new(200, 2))
+            .await
+            .unwrap()
+            .id
+    }
+
+    #[tokio::test]
+    async fn secret_guard_rejects_then_ban_unban_credit_resolve_delete() {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let http = reqwest::Client::new();
+        let base = format!("http://{}", srv.addr);
+        let uid = make_user(&srv.pool).await;
+
+        // No / wrong secret -> 403.
+        let no_secret = http
+            .post(format!("{base}/api/admin/ban"))
+            .json(&serde_json::json!({ "user_id": uid, "reason": "x" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(no_secret.status(), 403);
+
+        let wrong = http
+            .post(format!("{base}/api/admin/ban"))
+            .header("x-admin-secret", "nope")
+            .json(&serde_json::json!({ "user_id": uid, "reason": "x" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wrong.status(), 403);
+
+        // Ban (7 days) with the right secret -> 200, and the user is banned.
+        let ban = http
+            .post(format!("{base}/api/admin/ban"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "user_id": uid, "days": 7, "reason": "spam", "actor": "mod@vox" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ban.status(), 200);
+        let until: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT banned_until FROM users WHERE id = $1")
+                .bind(uid)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        assert!(until.is_some());
+
+        // Unban -> 200, ban cleared.
+        let unban = http
+            .post(format!("{base}/api/admin/unban"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "user_id": uid }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unban.status(), 200);
+        let until2: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT banned_until FROM users WHERE id = $1")
+                .bind(uid)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        assert!(until2.is_none());
+
+        // Credit +5.00 -> balance 2.00 + 5.00 = 7.00.
+        let credit = http
+            .post(format!("{base}/api/admin/credit"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "user_id": uid, "amount": 5.0, "reason": "goodwill" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(credit.status(), 200);
+        let balance: rust_decimal::Decimal =
+            sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+                .bind(uid)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        assert_eq!(balance, rust_decimal::Decimal::new(700, 2));
+
+        // A report exists -> resolve it (unknown id 404, bad action 400, ok 200).
+        let report_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO reports (reporter_user_id, room, reason) VALUES ($1, 'r', 'spam') RETURNING id",
+        )
+        .bind(uid)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+        let missing = http
+            .post(format!("{base}/api/admin/report/resolve"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "report_id": Uuid::new_v4(), "action": "resolved" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), 404);
+
+        let bad_action = http
+            .post(format!("{base}/api/admin/report/resolve"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "report_id": report_id, "action": "whatever" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad_action.status(), 400);
+
+        let resolve = http
+            .post(format!("{base}/api/admin/report/resolve"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "report_id": report_id, "action": "dismissed", "note": "no abuse" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resolve.status(), 200);
+        let status: String = sqlx::query_scalar("SELECT status FROM reports WHERE id = $1")
+            .bind(report_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "dismissed");
+
+        // Every action wrote an audit row.
+        let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_audit WHERE target = $1")
+            .bind(uid.to_string())
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+        assert!(audits >= 3); // ban + unban + credit
+
+        // GDPR delete via admin -> 200, user gone.
+        let del = http
+            .post(format!("{base}/api/admin/user/delete"))
+            .header("x-admin-secret", SECRET)
+            .json(&serde_json::json!({ "user_id": uid }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del.status(), 200);
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE id = $1")
+            .bind(uid)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+}
+
+mod content_api {
+    //! Public managed content (i18n + legal) and the DB blocklist loader. DB-gated.
+
+    use super::*;
+    use std::net::SocketAddr;
+    use uuid::Uuid;
+    use voxtranslate_server::content::load_blocklist_terms;
+    use voxtranslate_server::db::Pool;
+    use voxtranslate_server::moderation::{Moderator, Severity};
+
+    struct Server {
+        addr: SocketAddr,
+        pool: Pool,
+    }
+
+    async fn setup() -> Option<Server> {
+        let (state, pool) = billing_state("content-secret", 2.0).await?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app(state)).await;
+        });
+        Some(Server { addr, pool })
+    }
+
+    async fn ensure_lang(pool: &Pool, code: &str) {
+        sqlx::query("INSERT INTO languages (code, name) VALUES ($1, $1) ON CONFLICT DO NOTHING")
+            .bind(code)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn i18n_and_legal_served_from_db() {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let http = reqwest::Client::new();
+        let base = format!("http://{}", srv.addr);
+        ensure_lang(&srv.pool, "en").await;
+
+        // A managed UI string override.
+        let key = format!("greeting_{}", Uuid::new_v4().simple());
+        let string_id: Uuid =
+            sqlx::query_scalar("INSERT INTO i18n_strings (key) VALUES ($1) RETURNING id")
+                .bind(&key)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO i18n_translations (string_id, language, value) VALUES ($1, 'en', 'Hi there')",
+        )
+        .bind(string_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+        let i18n: serde_json::Value = http
+            .get(format!("{base}/api/content/i18n"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(i18n["en"][&key], "Hi there");
+
+        // A managed legal page.
+        let slug = format!("terms-{}", Uuid::new_v4().simple());
+        let page_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO legal_pages (slug, version) VALUES ($1, 'v1') RETURNING id",
+        )
+        .bind(&slug)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO legal_translations (page_id, language, title, body)
+             VALUES ($1, 'en', 'Terms', '# Hello')",
+        )
+        .bind(page_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+        let legal: serde_json::Value = http
+            .get(format!("{base}/api/content/legal/{slug}?lang=en"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(legal["title"], "Terms");
+        assert_eq!(legal["version"], "v1");
+        assert_eq!(legal["body"], "# Hello");
+
+        // Unknown slug -> 404.
+        let missing = http
+            .get(format!("{base}/api/content/legal/does-not-exist"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn blocklist_loads_from_db_and_flags() {
+        let Some(srv) = setup().await else {
+            return;
+        };
+        let term = format!("zzbad{}", Uuid::new_v4().simple());
+        sqlx::query("INSERT INTO blocklist_terms (term) VALUES ($1)")
+            .bind(&term)
+            .execute(&srv.pool)
+            .await
+            .unwrap();
+
+        let terms = load_blocklist_terms(&srv.pool).await;
+        assert!(terms.iter().any(|t| t == &term));
+
+        let m = Moderator::from_terms(std::iter::empty::<&str>()).with_terms(terms);
+        assert_eq!(m.severity(&format!("you {term}!")), Severity::Severe);
+        assert_eq!(m.severity("totally fine"), Severity::None);
+    }
+}
