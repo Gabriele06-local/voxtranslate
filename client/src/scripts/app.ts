@@ -6,6 +6,7 @@ import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
+import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import * as auth from './auth';
 import { CompositeRecorder } from './recording/composite-recorder';
@@ -106,6 +107,7 @@ let localStream: MediaStream | null = null;
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
 let audioCapture: AudioCapture | null = null;
+let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
 let lobbyTimer: number | null = null;
 let visibilityPublic = true;
@@ -170,7 +172,10 @@ visGroup.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;
   if (!btn) return;
   visibilityPublic = btn.dataset.vis === 'public';
-  visGroup.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+  visGroup.querySelectorAll('.seg-btn').forEach((b) => {
+    b.classList.toggle('active', b === btn);
+    b.setAttribute('aria-pressed', String(b === btn));
+  });
   updateVisHint();
 });
 
@@ -406,6 +411,15 @@ function startCall(): void {
   attachStream(myId, localStream);
   setCameraOff(myId, !camOn);
   setAudioMuted(myId, !micOn);
+
+  // Mic input meter: green halo on the mic button while the input picks up
+  // sound (muted track → silence → halo off). Join click = user gesture, so
+  // the AudioContext is allowed to start.
+  if (localStream.getAudioTracks().length > 0) {
+    micMeter = new MicMeter(localStream, (level) =>
+      btnMic.style.setProperty('--mic-level', level.toFixed(3)),
+    );
+  }
 
   manualClose = false;
   openSocket();
@@ -658,10 +672,13 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   mute.innerHTML = icon('mic-off', 14);
   overlay.append(nameEl, langEl, mute);
   if (!isSelf) {
-    const pinBtn = document.createElement('span');
+    // A real <button> so pinning works from the keyboard too.
+    const pinBtn = document.createElement('button');
+    pinBtn.type = 'button';
     pinBtn.className = 'pin-btn';
     pinBtn.innerHTML = icon('pin', 14);
     pinBtn.title = t('pinTip');
+    pinBtn.setAttribute('aria-label', t('pinTip'));
     pinBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       togglePin(id);
@@ -809,6 +826,8 @@ function updatePinButtons(): void {
     const isPinned = id === pinnedPeerId;
     btn.innerHTML = icon(isPinned ? 'pin-off' : 'pin', 14);
     btn.title = isPinned ? t('unpinTip') : t('pinTip');
+    btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('aria-pressed', String(isPinned));
   });
 }
 
@@ -901,6 +920,7 @@ function toggleParticipants(force?: boolean): void {
   const open = force ?? participantsPanel.classList.contains('closed');
   participantsPanel.classList.toggle('open', open);
   participantsPanel.classList.toggle('closed', !open);
+  btnParticipants.setAttribute('aria-expanded', String(open));
   if (open) updateParticipantsList();
   setTimeout(layoutVideos, 320);
 }
@@ -989,26 +1009,39 @@ function showSubtitle(speakerId: string, text: string, interim: boolean, origina
 }
 
 // ---- Controls --------------------------------------------------------------
+/** Toggle button state for assistive tech: aria-pressed + a label matching the tooltip. */
+function setToggleState(btn: HTMLElement, pressed: boolean, label?: string): void {
+  btn.setAttribute('aria-pressed', String(pressed));
+  if (label) {
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  }
+}
+
 function setControlState(): void {
   btnMic.classList.toggle('active-danger', !micOn);
   btnMic.innerHTML = icon(micOn ? 'mic' : 'mic-off');
+  setToggleState(btnMic, micOn);
   btnCam.classList.toggle('active-danger', !camOn);
   btnCam.innerHTML = icon(camOn ? 'video' : 'video-off');
+  setToggleState(btnCam, camOn);
   btnTts.classList.toggle('active-success', ttsOn);
   btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
+  setToggleState(btnTts, ttsOn);
   btnHand.classList.toggle('active-success', handRaised);
   btnHand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
-  btnHand.title = handRaised ? t('handUp') : t('handTip');
+  setToggleState(btnHand, handRaised, handRaised ? t('handUp') : t('handTip'));
   btnFullscreen.innerHTML = icon(document.fullscreenElement ? 'fullscreen-off' : 'fullscreen');
   btnPip.innerHTML = icon('pip');
   btnView.innerHTML = icon(viewMode === 'speaker' ? 'speaker' : 'grid');
   btnView.title = t(viewMode === 'speaker' ? 'viewGrid' : 'viewSpeaker');
+  btnView.setAttribute('aria-label', btnView.title);
   btnShare.innerHTML = icon(isSharingScreen ? 'monitor' : 'monitor');
   btnShare.classList.toggle('active-success', isSharingScreen);
-  btnShare.title = isSharingScreen ? t('stopShare') : t('screenShareTip');
+  setToggleState(btnShare, isSharingScreen, isSharingScreen ? t('stopShare') : t('screenShareTip'));
   btnRecord.innerHTML = icon('recording');
   btnRecord.classList.toggle('active-danger', isRecording);
-  btnRecord.title = isRecording ? t('recording') : t('recordingTip');
+  setToggleState(btnRecord, isRecording, isRecording ? t('recording') : t('recordingTip'));
   const partIco = btnParticipants.querySelector('.part-ico');
   if (partIco) partIco.innerHTML = icon('users');
   const chatIco = btnChat.querySelector('.chat-ico');
@@ -1226,6 +1259,7 @@ function toggleChat(force?: boolean): void {
   const open = force ?? !chatPanel.classList.contains('open');
   chatPanel.classList.toggle('open', open);
   chatPanel.classList.toggle('closed', !open);
+  btnChat.setAttribute('aria-expanded', String(open));
   chat?.setOpen(open);
   if (open) chatInput.focus();
   // The desktop sidebar narrows call-main — re-fit after the transition.
@@ -1261,6 +1295,8 @@ function leaveCall(): void {
   show($('transcript-indicator'), false);
   manualClose = true;
   audioCapture?.stop();
+  micMeter?.stop();
+  micMeter = null;
   // Initiate the recording stop BEFORE tearing down the mesh: the chunks are
   // already collected, so the async Blob assembly survives the cleanup below.
   if (isRecording) void stopRecording();
@@ -1335,8 +1371,55 @@ callRoom.addEventListener('click', async () => {
 // ============================================================================
 // Auth + billing
 // ============================================================================
+// ---- Modal a11y: focus trap + Escape + focus restore (WCAG 2.1.2 / 2.4.3) --
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+let openOverlay: HTMLElement | null = null;
+let overlayRestoreFocus: HTMLElement | null = null;
+
+function overlayKeydown(e: KeyboardEvent): void {
+  if (!openOverlay) return;
+  if (e.key === 'Escape') {
+    // The consent gate is a mandatory choice — not dismissable via Escape.
+    if (openOverlay !== consentModal) {
+      e.preventDefault();
+      show(openOverlay, false);
+    }
+    return;
+  }
+  if (e.key !== 'Tab') return;
+  const focusables = Array.from(openOverlay.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (f) => f.offsetParent !== null, // skip display:none descendants
+  );
+  if (focusables.length === 0) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement as HTMLElement | null;
+  const inside = !!active && openOverlay.contains(active);
+  if (e.shiftKey && (active === first || !inside)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (active === last || !inside)) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 function show(el: HTMLElement, visible: boolean): void {
   el.classList.toggle('hidden', !visible);
+  if (!el.classList.contains('modal-overlay')) return;
+  // Modal overlays additionally trap focus and restore it on close.
+  if (visible) {
+    openOverlay = el;
+    overlayRestoreFocus = document.activeElement as HTMLElement | null;
+    document.addEventListener('keydown', overlayKeydown, true);
+    el.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+  } else if (openOverlay === el) {
+    openOverlay = null;
+    document.removeEventListener('keydown', overlayKeydown, true);
+    overlayRestoreFocus?.focus();
+    overlayRestoreFocus = null;
+  }
 }
 
 async function boot(): Promise<void> {
@@ -1398,9 +1481,11 @@ function updatePublicGate(): void {
   if (guest && visibilityPublic) {
     // Force private for guests.
     visibilityPublic = false;
-    visGroup.querySelectorAll('.seg-btn').forEach((b) =>
-      b.classList.toggle('active', (b as HTMLElement).dataset.vis === 'private'),
-    );
+    visGroup.querySelectorAll('.seg-btn').forEach((b) => {
+      const isPrivate = (b as HTMLElement).dataset.vis === 'private';
+      b.classList.toggle('active', isPrivate);
+      b.setAttribute('aria-pressed', String(isPrivate));
+    });
     updateVisHint();
   }
   visHint.textContent = guest ? t('publicNeedsLogin') : visibilityPublic ? '' : t('privateHint');
@@ -1537,9 +1622,10 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
 type LedgerTab = 'history' | 'usage' | 'transcripts';
 
 function selectTab(which: LedgerTab): void {
-  $('tab-history').classList.toggle('active', which === 'history');
-  $('tab-usage').classList.toggle('active', which === 'usage');
-  $('tab-transcripts').classList.toggle('active', which === 'transcripts');
+  for (const [id, tab] of [['tab-history', 'history'], ['tab-usage', 'usage'], ['tab-transcripts', 'transcripts']] as const) {
+    $(id).classList.toggle('active', which === tab);
+    $(id).setAttribute('aria-pressed', String(which === tab));
+  }
   void loadLedger(which);
 }
 
@@ -1866,15 +1952,20 @@ for (const em of EMOJI_LIST) {
   emojiGrid.appendChild(btn);
 }
 
+function setEmojiPanelOpen(open: boolean): void {
+  emojiPanel.classList.toggle('hidden', !open);
+  emojiToggle.setAttribute('aria-expanded', String(open));
+}
+
 emojiToggle.addEventListener('click', (e) => {
   e.stopPropagation();
-  emojiPanel.classList.toggle('hidden');
+  setEmojiPanelOpen(emojiPanel.classList.contains('hidden'));
 });
-document.addEventListener('click', () => emojiPanel.classList.add('hidden'));
+document.addEventListener('click', () => setEmojiPanelOpen(false));
 
 function sendEmoji(emoji: string): void {
   ws?.send(JSON.stringify({ type: 'emoji', emoji }));
-  emojiPanel.classList.add('hidden');
+  setEmojiPanelOpen(false);
 }
 
 initCookieBanner();

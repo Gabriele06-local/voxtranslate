@@ -62,6 +62,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: 'Duration', eventsLabel: 'events', transcriptRecording: 'Transcript is being recorded',
     noTranscriptEvents: 'No transcript events in this call', downloadFailed: 'Download failed — try again', processing: 'Processing…',
     recordingPartial: 'Recording failed — partial file saved',
+    closeTip: 'Close', diceTip: 'Random code',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -109,6 +110,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: 'Durata', eventsLabel: 'eventi', transcriptRecording: 'Trascrizione in corso di registrazione',
     noTranscriptEvents: 'Nessun evento trascritto in questa chiamata', downloadFailed: 'Download non riuscito — riprova', processing: 'Elaborazione…',
     recordingPartial: 'Registrazione interrotta — file parziale salvato',
+    closeTip: 'Chiudi', diceTip: 'Codice casuale',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -156,6 +158,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: 'Duración', eventsLabel: 'eventos', transcriptRecording: 'La transcripción se está grabando',
     noTranscriptEvents: 'Sin eventos de transcripción en esta llamada', downloadFailed: 'Error al descargar — inténtalo de nuevo', processing: 'Procesando…',
     recordingPartial: 'La grabación falló — archivo parcial guardado',
+    closeTip: 'Cerrar', diceTip: 'Código aleatorio',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -203,6 +206,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: 'Durée', eventsLabel: 'événements', transcriptRecording: 'La transcription est en cours d’enregistrement',
     noTranscriptEvents: 'Aucun événement transcrit dans cet appel', downloadFailed: 'Échec du téléchargement — réessayez', processing: 'Traitement…',
     recordingPartial: 'Échec de l’enregistrement — fichier partiel sauvegardé',
+    closeTip: 'Fermer', diceTip: 'Code aléatoire',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -250,6 +254,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: 'Dauer', eventsLabel: 'Ereignisse', transcriptRecording: 'Transkript wird aufgezeichnet',
     noTranscriptEvents: 'Keine Transkript-Ereignisse in diesem Anruf', downloadFailed: 'Download fehlgeschlagen — bitte erneut versuchen', processing: 'Verarbeitung…',
     recordingPartial: 'Aufnahme fehlgeschlagen — Teildatei gespeichert',
+    closeTip: 'Schließen', diceTip: 'Zufälliger Code',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -297,6 +302,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: 'Duração', eventsLabel: 'eventos', transcriptRecording: 'A transcrição está sendo gravada',
     noTranscriptEvents: 'Nenhum evento de transcrição nesta chamada', downloadFailed: 'Falha no download — tente novamente', processing: 'Processando…',
     recordingPartial: 'Falha na gravação — arquivo parcial salvo',
+    closeTip: 'Fechar', diceTip: 'Código aleatório',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -344,6 +350,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: '通話時間', eventsLabel: '件', transcriptRecording: '文字起こしを記録中',
     noTranscriptEvents: 'この通話に文字起こしはありません', downloadFailed: 'ダウンロードに失敗しました — もう一度お試しください', processing: '処理中…',
     recordingPartial: '録画に失敗しました — 部分ファイルを保存しました',
+    closeTip: '閉じる', diceTip: 'ランダムコード',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -391,6 +398,7 @@ export const I18N: Record<string, Dict> = {
     durationLabel: '时长', eventsLabel: '条', transcriptRecording: '正在记录转录',
     noTranscriptEvents: '此通话没有转录记录', downloadFailed: '下载失败 — 请重试', processing: '处理中…',
     recordingPartial: '录制失败 — 已保存部分文件',
+    closeTip: '关闭', diceTip: '随机代码',
   },
 };
 
@@ -417,5 +425,9 @@ export function applyI18n(): void {
   document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((el) => {
     el.setAttribute('title', t(el.dataset.i18nTitle!));
     el.setAttribute('aria-label', t(el.dataset.i18nTitle!));
+  });
+  // aria-label only (no tooltip) — for landmark/region names.
+  document.querySelectorAll<HTMLElement>('[data-i18n-label]').forEach((el) => {
+    el.setAttribute('aria-label', t(el.dataset.i18nLabel!));
   });
 }

@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@axe-core/playwright": "^4.11.3",
     "@playwright/test": "^1.60.0",
     "@vitest/coverage-v8": "^4.1.8",
     "monocart-coverage-reports": "^2.12.12",

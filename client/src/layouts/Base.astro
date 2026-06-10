@@ -6,7 +6,8 @@ const { title = 'VoxTranslate' } = Astro.props;
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <!-- No maximum-scale: users must be able to zoom (WCAG 1.4.4). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>{title}</title>
 
@@ -37,9 +38,13 @@ const { title = 'VoxTranslate' } = Astro.props;
         --surface-elevated: #1a1b26;
         --border: #252836;
         --text: #e2e4ec;
-        --muted: #6b7089;
-        --text-muted: #6b7089;
+        /* ≥4.5:1 on --bg/--surface (the old #6b7089 was ~3.8:1, AA fail). */
+        --muted: #8a90a8;
+        --text-muted: #8a90a8;
         --accent: #3b82f6;
+        /* Solid button background: white text on #3b82f6 is 3.7:1 (AA fail),
+           on #2563eb it is 5.2:1. Keep --accent for text/borders on dark. */
+        --accent-strong: #2563eb;
         --accent-dim: #1e3a8a;
         --accent-soft: rgba(59, 130, 246, 0.15);
         --rec: #ef4444;
@@ -90,6 +95,26 @@ const { title = 'VoxTranslate' } = Astro.props;
       ::selection {
         background: var(--accent);
         color: #fff;
+      }
+
+      /* Keyboard focus must always be visible (WCAG 2.4.7); --accent is ≥3:1
+         against every surface in the palette (1.4.11). */
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      /* Respect reduced-motion: kill pulse/wave/slide animations + transitions
+         (WCAG 2.3.3). */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
       }
     </style>
   </body>
