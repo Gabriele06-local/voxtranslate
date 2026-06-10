@@ -33,6 +33,10 @@
 /server/tarpaulin-report.html
 /client/coverage-unit
 
-# Agent skills (skills.sh) — skill bodies are restorable from skills-lock.json
-# via `bunx skills experimental_install`; the lock file IS committed.
-/.claude/skills/
+# Agent skills (skills.sh) — bodies are restorable from skills-lock.json via
+# `bunx skills experimental_install`, so the lock file is committed and the
+# bodies are ignored. Exception: deepgram-api is renamed from the upstream
+# `api` skill (clarity), which a lock restore can't preserve, so it is vendored.
+/.claude/skills/*
+!/.claude/skills/deepgram-api/
+/.agents/

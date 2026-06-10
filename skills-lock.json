@@ -7,12 +7,6 @@
       "skillPath": "skills/accessibility/SKILL.md",
       "computedHash": "10e83284d3395ab5ec2f2db602b663480a37a4ff404d16510eefe86b034fcc1a"
     },
-    "api": {
-      "source": "deepgram/skills",
-      "sourceType": "github",
-      "skillPath": "skills/api/SKILL.md",
-      "computedHash": "c70381c6687bd8627f06fabc173584a4b97edc6d991d7a7a8e174974e449849e"
-    },
     "astro": {
       "source": "astrolicious/agent-skills",
       "sourceType": "github",
