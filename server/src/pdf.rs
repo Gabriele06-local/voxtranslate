@@ -80,21 +80,41 @@ pub fn build_pdf_doc(
         .map(|(i, p)| serde_json::json!({ "name": p.name, "lang": p.language, "color": i }))
         .collect();
 
-    let events: Vec<serde_json::Value> = export
+    // Events and bookmark markers interleave chronologically. Both go through
+    // the same JSON channel, so bookmark labels are injection-safe like all
+    // other user text.
+    let mut timeline: Vec<(chrono::DateTime<chrono::Utc>, serde_json::Value)> = export
         .events
         .iter()
         .map(|ev| {
             let translation = ev.translations.get(lang).filter(|t| **t != ev.original);
-            serde_json::json!({
-                "time": ev.ts.with_timezone(&tz).format("%H:%M:%S").to_string(),
-                "speaker": ev.speaker_name,
-                "color": color_of.get(ev.speaker_id.as_str()).copied().unwrap_or(0),
-                "chat": ev.kind == "chat",
-                "original": ev.original,
-                "translation": translation,
-            })
+            (
+                ev.ts,
+                serde_json::json!({
+                    "marker": false,
+                    "time": ev.ts.with_timezone(&tz).format("%H:%M:%S").to_string(),
+                    "speaker": ev.speaker_name,
+                    "color": color_of.get(ev.speaker_id.as_str()).copied().unwrap_or(0),
+                    "chat": ev.kind == "chat",
+                    "original": ev.original,
+                    "translation": translation,
+                }),
+            )
         })
+        .chain(export.bookmarks.iter().map(|b| {
+            (
+                b.ts,
+                serde_json::json!({
+                    "marker": true,
+                    "time": b.ts.with_timezone(&tz).format("%H:%M:%S").to_string(),
+                    "by": b.by,
+                    "label": b.label,
+                }),
+            )
+        }))
         .collect();
+    timeline.sort_by_key(|(ts, _)| *ts);
+    let events: Vec<serde_json::Value> = timeline.into_iter().map(|(_, v)| v).collect();
 
     serde_json::json!({
         "title": "Call Transcript",
@@ -111,6 +131,7 @@ pub fn build_pdf_doc(
         ],
         "participants_label": "Participants",
         "participants": participants,
+        "bookmark_label": "BOOKMARK",
         "events": events,
         "empty_label": "No transcript events were recorded during this call.",
         "footer": format!(
@@ -133,7 +154,9 @@ fn format_duration(total_seconds: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transcripts::{ExportEvent, ExportParticipant, ExportSession, TranscriptExport};
+    use crate::transcripts::{
+        ExportBookmark, ExportEvent, ExportParticipant, ExportSession, TranscriptExport,
+    };
     use chrono::{Duration, TimeZone, Utc};
     use std::collections::HashMap;
     use uuid::Uuid;
@@ -173,6 +196,7 @@ mod tests {
                 ],
             },
             events,
+            bookmarks: vec![],
             exported_at: started_at + Duration::seconds(4000),
         }
     }
@@ -252,6 +276,40 @@ mod tests {
         );
         let pdf = render(&export("daily-standup", vec![speech, ja, zh, chat]));
         std::fs::write("target/sample-transcript.pdf", &pdf.bytes).unwrap();
+    }
+
+    #[test]
+    fn bookmarks_interleave_as_marker_rows() {
+        let base = Utc.with_ymd_and_hms(2026, 6, 10, 12, 0, 0).unwrap();
+        let mut doc = export("review", vec![event("speech", 0, "important point", "en", 5)]);
+        doc.bookmarks = vec![
+            ExportBookmark {
+                ts: base + Duration::seconds(6),
+                label: Some("decision made".into()),
+                by: "Speaker 0".into(),
+            },
+            ExportBookmark {
+                ts: base + Duration::seconds(8),
+                label: None,
+                by: "Speaker 1".into(),
+            },
+            // Labels are user text — must render literally like everything else.
+            ExportBookmark {
+                ts: base + Duration::seconds(9),
+                label: Some("#eval(\"1+1\") ] #pagebreak() [ *bold?*".into()),
+                by: "] #pagebreak() [".into(),
+            },
+        ];
+        // The marker lands between the two stream positions chronologically.
+        let json = build_pdf_doc(&doc, chrono_tz::UTC, "en");
+        let rows = json["events"].as_array().unwrap();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0]["marker"], false);
+        assert_eq!(rows[1]["marker"], true);
+        assert_eq!(rows[1]["label"], "decision made");
+        let pdf = render(&doc);
+        assert!(pdf.bytes.starts_with(b"%PDF-"));
+        assert_eq!(pdf.pages, 1, "injection fixture altered layout");
     }
 
     #[test]

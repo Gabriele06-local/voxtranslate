@@ -76,6 +76,7 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   const list = $('session-transcript');
   const status = $('session-transcript-status');
   list.innerHTML = '';
+  $('session-bookmarks').hidden = true;
   if (ref.event_count === 0) {
     status.textContent = t('noTranscriptEvents');
     return;
@@ -93,7 +94,43 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   $('session-participants').textContent = doc.session.participants
     .map((p) => p.name)
     .join(', ');
+  renderBookmarks(doc);
   renderEvents(list, doc);
+}
+
+/** Pinned moments (spec 0013) above the transcript; hidden when none exist. */
+function renderBookmarks(doc: TranscriptDoc): void {
+  const box = $('session-bookmarks');
+  box.innerHTML = '';
+  const pins = doc.bookmarks ?? [];
+  box.hidden = pins.length === 0;
+  if (!pins.length) return;
+  const head = document.createElement('div');
+  head.className = 'bm-head';
+  head.textContent = `🔖 ${t('bookmarksTitle')}`;
+  box.appendChild(head);
+  for (const bm of pins) {
+    const row = document.createElement('div');
+    row.className = 'bm-item';
+    const time = document.createElement('span');
+    time.className = 'bm-time mono';
+    time.textContent = new Date(bm.ts).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const by = document.createElement('span');
+    by.className = 'bm-by';
+    by.textContent = bm.by;
+    row.append(time, by);
+    if (bm.label) {
+      const label = document.createElement('span');
+      label.className = 'bm-label';
+      label.textContent = bm.label;
+      row.appendChild(label);
+    }
+    box.appendChild(row);
+  }
 }
 
 function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {

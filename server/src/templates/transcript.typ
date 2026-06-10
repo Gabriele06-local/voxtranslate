@@ -56,24 +56,44 @@
   text(fill: rgb("#888888"), style: "italic", data.empty_label)
 }
 #for ev in data.events {
-  block(spacing: 1.1em, breakable: false, {
-    text(size: 8.5pt, fill: rgb("#999999"), "[" + ev.time + "]")
-    h(0.5em)
-    text(weight: "bold", fill: speaker-color(ev.color), ev.speaker)
-    if ev.chat {
-      h(0.4em)
+  if ev.at("marker", default: false) {
+    // Bookmark marker row (spec 0013) — gold badge + owner + optional label.
+    block(spacing: 1.1em, breakable: false, {
+      text(size: 8.5pt, fill: rgb("#999999"), "[" + ev.time + "]")
+      h(0.5em)
       box(
-        fill: rgb("#eceff4"),
+        fill: rgb("#fdf3d7"),
         inset: (x: 3pt, y: 1.5pt),
         radius: 2pt,
-        text(size: 7pt, fill: rgb("#555555"), weight: "bold", "CHAT"),
+        text(size: 7pt, fill: rgb("#8a6d1a"), weight: "bold", data.bookmark_label),
       )
-    }
-    linebreak()
-    text(fill: rgb("#555555"), ev.original)
-    if ev.translation != none {
+      h(0.4em)
+      text(size: 9pt, weight: "bold", fill: rgb("#8a6d1a"), ev.by)
+      if ev.label != none {
+        linebreak()
+        text(fill: rgb("#555555"), style: "italic", ev.label)
+      }
+    })
+  } else {
+    block(spacing: 1.1em, breakable: false, {
+      text(size: 8.5pt, fill: rgb("#999999"), "[" + ev.time + "]")
+      h(0.5em)
+      text(weight: "bold", fill: speaker-color(ev.color), ev.speaker)
+      if ev.chat {
+        h(0.4em)
+        box(
+          fill: rgb("#eceff4"),
+          inset: (x: 3pt, y: 1.5pt),
+          radius: 2pt,
+          text(size: 7pt, fill: rgb("#555555"), weight: "bold", "CHAT"),
+        )
+      }
       linebreak()
-      text(weight: "bold", ev.translation)
-    }
-  })
+      text(fill: rgb("#555555"), ev.original)
+      if ev.translation != none {
+        linebreak()
+        text(weight: "bold", ev.translation)
+      }
+    })
+  }
 }

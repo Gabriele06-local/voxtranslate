@@ -83,12 +83,41 @@ pub struct SessionSummary {
     pub event_count: i64,
 }
 
+/// A pinned moment in a call (spec 0013). `mine` lets the UI show the delete
+/// button only to the owner; creators are exposed by display name only.
+#[derive(Debug, serde::Serialize)]
+pub struct Bookmark {
+    pub id: Uuid,
+    pub ts: DateTime<Utc>,
+    pub label: Option<String>,
+    pub by: String,
+    pub mine: bool,
+}
+
+/// Outcome of an owner-gated bookmark mutation (update / delete).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookmarkMutation {
+    NotFound,
+    /// The bookmark exists but belongs to another participant.
+    Forbidden,
+    Ok,
+}
+
+/// Bookmark shape embedded in [`TranscriptExport`] documents.
+#[derive(Debug, serde::Serialize)]
+pub struct ExportBookmark {
+    pub ts: DateTime<Utc>,
+    pub label: Option<String>,
+    pub by: String,
+}
+
 /// The downloadable transcript document (JSON body / PDF input). Participants
 /// are identified by their *peer* ids only — user UUIDs never leave the server.
 #[derive(Debug, serde::Serialize)]
 pub struct TranscriptExport {
     pub session: ExportSession,
     pub events: Vec<ExportEvent>,
+    pub bookmarks: Vec<ExportBookmark>,
     pub exported_at: DateTime<Utc>,
 }
 
@@ -125,6 +154,8 @@ pub struct ExportEvent {
 
 /// Row shape of the `list_sessions` query.
 type SessionRow = (Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>, i64);
+/// Row shape of the `list_bookmarks` query: `(id, ts, label, owner_name, mine)`.
+type BookmarkRow = (Uuid, DateTime<Utc>, Option<String>, String, bool);
 /// Row shape of the `export` events query: `(event_type, speaker_peer_id,
 /// speaker_name, original_text, original_lang, translations, ts)`.
 type EventRow = (
@@ -311,6 +342,136 @@ impl TranscriptService {
         .await
     }
 
+    /// Pin a moment (spec 0013). `ts` defaults to "now" — the in-call 🔖 button
+    /// posts instantly and labels afterwards. Caller has already passed
+    /// [`Self::access`].
+    pub async fn add_bookmark(
+        &self,
+        session_id: Uuid,
+        user_id: Uuid,
+        ts: Option<DateTime<Utc>>,
+        label: Option<&str>,
+    ) -> Result<Bookmark, sqlx::Error> {
+        let (id, ts, label): (Uuid, DateTime<Utc>, Option<String>) = sqlx::query_as(
+            "INSERT INTO transcript_bookmarks (session_id, user_id, ts, label)
+             VALUES ($1, $2, COALESCE($3, now()), $4)
+             RETURNING id, ts, label",
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(ts)
+        .bind(label)
+        .fetch_one(&self.pool)
+        .await?;
+        let by: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(Bookmark {
+            id,
+            ts,
+            label,
+            by,
+            mine: true,
+        })
+    }
+
+    /// Every participant's bookmarks for a session, chronological.
+    pub async fn list_bookmarks(
+        &self,
+        session_id: Uuid,
+        viewer: Uuid,
+    ) -> Result<Vec<Bookmark>, sqlx::Error> {
+        let rows: Vec<BookmarkRow> = sqlx::query_as(
+            "SELECT b.id, b.ts, b.label, u.name, b.user_id = $2
+             FROM transcript_bookmarks b JOIN users u ON u.id = b.user_id
+             WHERE b.session_id = $1 ORDER BY b.ts",
+        )
+        .bind(session_id)
+        .bind(viewer)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, ts, label, by, mine)| Bookmark {
+                id,
+                ts,
+                label,
+                by,
+                mine,
+            })
+            .collect())
+    }
+
+    /// Relabel a bookmark — owner only.
+    pub async fn update_bookmark_label(
+        &self,
+        session_id: Uuid,
+        bookmark_id: Uuid,
+        user_id: Uuid,
+        label: Option<&str>,
+    ) -> Result<BookmarkMutation, sqlx::Error> {
+        let done = sqlx::query(
+            "UPDATE transcript_bookmarks SET label = $4
+             WHERE id = $1 AND session_id = $2 AND user_id = $3",
+        )
+        .bind(bookmark_id)
+        .bind(session_id)
+        .bind(user_id)
+        .bind(label)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if done == 1 {
+            return Ok(BookmarkMutation::Ok);
+        }
+        self.bookmark_gate(session_id, bookmark_id).await
+    }
+
+    /// Remove a bookmark — owner only.
+    pub async fn delete_bookmark(
+        &self,
+        session_id: Uuid,
+        bookmark_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<BookmarkMutation, sqlx::Error> {
+        let done = sqlx::query(
+            "DELETE FROM transcript_bookmarks
+             WHERE id = $1 AND session_id = $2 AND user_id = $3",
+        )
+        .bind(bookmark_id)
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if done == 1 {
+            return Ok(BookmarkMutation::Ok);
+        }
+        self.bookmark_gate(session_id, bookmark_id).await
+    }
+
+    /// 404-vs-403 for a failed owner-gated mutation.
+    async fn bookmark_gate(
+        &self,
+        session_id: Uuid,
+        bookmark_id: Uuid,
+    ) -> Result<BookmarkMutation, sqlx::Error> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM transcript_bookmarks
+                            WHERE id = $1 AND session_id = $2)",
+        )
+        .bind(bookmark_id)
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(if exists {
+            BookmarkMutation::Forbidden
+        } else {
+            BookmarkMutation::NotFound
+        })
+    }
+
     /// Assemble the full transcript document for a session, or `None` if the
     /// session doesn't exist (check [`Self::access`] first for 403 vs 404).
     pub async fn export(&self, session_id: Uuid) -> Result<Option<TranscriptExport>, sqlx::Error> {
@@ -361,6 +522,19 @@ impl TranscriptService {
             )
             .collect();
 
+        let bookmark_rows: Vec<(DateTime<Utc>, Option<String>, String)> = sqlx::query_as(
+            "SELECT b.ts, b.label, u.name
+             FROM transcript_bookmarks b JOIN users u ON u.id = b.user_id
+             WHERE b.session_id = $1 ORDER BY b.ts",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let bookmarks = bookmark_rows
+            .into_iter()
+            .map(|(ts, label, by)| ExportBookmark { ts, label, by })
+            .collect();
+
         let exported_at = Utc::now();
         let duration_seconds = (ended_at.unwrap_or(exported_at) - started_at)
             .num_seconds()
@@ -375,6 +549,7 @@ impl TranscriptService {
                 participants,
             },
             events,
+            bookmarks,
             exported_at,
         }))
     }

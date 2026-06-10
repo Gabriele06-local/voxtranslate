@@ -10,6 +10,7 @@ import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
+import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -479,6 +480,7 @@ async function handleServer(msg: any): Promise<void> {
       activeSessionId = typeof msg.session_id === 'string' ? msg.session_id : null;
       callStartedAt = Date.now();
       show($('transcript-indicator'), !!activeSessionId);
+      setBookmarkSession(activeSessionId); // 🔖 button appears (authed users only)
       for (const p of msg.peers) {
         peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
@@ -1326,6 +1328,7 @@ function leaveCall(): void {
   chatPanel.classList.remove('open');
   participantsPanel.classList.remove('open');
   participantsPanel.classList.add('closed');
+  setBookmarkSession(null); // hides the 🔖 button + closes its panel
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
@@ -1969,6 +1972,9 @@ $('report-close').innerHTML = icon('close', 16);
 $('privacy-close').innerHTML = icon('close', 16);
 $('part-close').innerHTML = icon('close', 16);
 $('postcall-close').innerHTML = icon('close', 16);
+$('btn-bookmark').innerHTML = icon('bookmark');
+$('bookmarks-close').innerHTML = icon('close', 16);
+initBookmarks({ layout: layoutVideos }); // panel toggles re-flow the video grid
 
 // ---- Emoji picker ----------------------------------------------------------
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];

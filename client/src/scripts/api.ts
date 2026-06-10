@@ -25,6 +25,13 @@ export interface TranscriptEvent {
   translations: Record<string, string>;
 }
 
+export interface ExportBookmark {
+  ts: string;
+  label?: string | null;
+  /** Creator's display name (user UUIDs never leave the server). */
+  by: string;
+}
+
 export interface TranscriptDoc {
   session: {
     id: string;
@@ -35,6 +42,7 @@ export interface TranscriptDoc {
     participants: TranscriptParticipant[];
   };
   events: TranscriptEvent[];
+  bookmarks: ExportBookmark[];
   exported_at: string;
 }
 
@@ -49,6 +57,87 @@ export async function fetchTranscript(sessionId: string): Promise<TranscriptDoc 
     return (await res.json()) as TranscriptDoc;
   } catch {
     return null;
+  }
+}
+
+// ---- Bookmarks (REST under /api/sessions/{id}/bookmarks) -------------------
+
+export interface Bookmark {
+  id: string;
+  ts: string;
+  label?: string | null;
+  /** Creator's display name (user UUIDs never leave the server). */
+  by: string;
+  /** True when the viewer owns it — gates the edit/delete UI. */
+  mine: boolean;
+}
+
+/** All participants' bookmarks, chronological; null on 403/404/network error. */
+export async function fetchBookmarks(sessionId: string): Promise<Bookmark[] | null> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/bookmarks`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as Bookmark[];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pin a moment. No `ts` is sent — the server stamps "now", avoiding client
+ * clock skew; the in-call flow POSTs instantly and PATCHes the label after.
+ */
+export async function addBookmark(sessionId: string): Promise<Bookmark | null> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/bookmarks`,
+      {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as Bookmark;
+  } catch {
+    return null;
+  }
+}
+
+/** Relabel an owned bookmark (empty label clears it). */
+export async function updateBookmarkLabel(
+  sessionId: string,
+  bookmarkId: string,
+  label: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/bookmarks/${encodeURIComponent(bookmarkId)}`,
+      {
+        method: 'PATCH',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete an owned bookmark. */
+export async function deleteBookmark(sessionId: string, bookmarkId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/bookmarks/${encodeURIComponent(bookmarkId)}`,
+      { method: 'DELETE', headers: authHeaders() },
+    );
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

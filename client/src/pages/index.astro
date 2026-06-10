@@ -194,12 +194,22 @@ const LANGS = [
         <div class="video-stage">
           <div id="video-grid" class="video-grid" data-peers="1"></div>
           <span id="rec-badge" class="rec-badge hidden">REC <span class="rec-dot"></span> <span id="rec-timer">00:00</span></span>
+          <!-- Bookmark quick-label popover (spec 0013): appears after a pin,
+               auto-dismisses in ~3s; typing keeps it alive. -->
+          <div id="bookmark-pop" class="bookmark-pop hidden" role="group" data-i18n-label="bookmarkAdded">
+            <span id="bookmark-pop-title" class="bookmark-pop-title" role="status"></span>
+            <input id="bookmark-label-input" type="text" maxlength="200" autocomplete="off"
+              data-i18n-ph="bookmarkLabelPh" data-i18n-label="bookmarkLabelPh" />
+            <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn"></button>
+            <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
+          </div>
         </div>
         <div class="control-bar">
           <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
           <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
           <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
           <button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button>
+          <button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button>
           <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
           <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
           <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
@@ -219,6 +229,14 @@ const LANGS = [
           <button id="part-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
         </div>
         <div id="participants-list" class="participants-list"></div>
+      </section>
+
+      <section id="bookmarks-panel" class="bookmarks-panel closed" data-i18n-label="bookmarksTitle">
+        <div class="side-panel-header">
+          <span class="card-title" data-i18n="bookmarksTitle"></span>
+          <button id="bookmarks-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+        </div>
+        <div id="bookmarks-list" class="bookmarks-list"></div>
       </section>
 
       <section id="chat-panel" class="chat-panel closed" data-i18n-label="chatTitle">
@@ -804,8 +822,58 @@ const LANGS = [
     .participants-list :global(.part-status-danger) { color: var(--danger); }
     .participants-list :global(.part-status-muted) { color: var(--muted); }
 
+    /* ---------- Bookmarks (spec 0013) ---------- */
+    .bookmark-pop {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10;
+      display: flex; align-items: center; gap: 8px; max-width: 94%;
+      background: rgba(19,20,28,0.92); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px;
+    }
+    .bookmark-pop-title { font-size: 0.82rem; color: var(--text); white-space: nowrap; }
+    .bookmark-pop-error .bookmark-pop-title { color: var(--danger); }
+    .bookmark-pop input { width: 200px; min-height: 40px; }
+    .bookmark-pop .bm-save { width: auto; min-height: 40px; padding: 0 14px; }
+    .bookmark-pop .btn-ghost { min-height: 40px; white-space: nowrap; }
+
+    .bookmarks-panel {
+      width: 300px; background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-right 0.3s;
+    }
+    .bookmarks-panel.closed { margin-right: -301px; }
+    .bookmarks-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+    /* Rows are created in JS → :global() (Astro scoping). */
+    .bookmarks-list :global(.bm-item) {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 10px; background: var(--bg); min-height: 44px;
+    }
+    .bookmarks-list :global(.bm-time) { flex: none; color: var(--muted); font-size: 0.76rem; }
+    .bookmarks-list :global(.bm-body) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .bookmarks-list :global(.bm-by) { font-size: 0.78rem; font-weight: 700; color: var(--accent); }
+    .bookmarks-list :global(.bm-label) { font-size: 0.85rem; color: var(--text); overflow-wrap: anywhere; }
+    .bookmarks-list :global(.bm-label-empty) { color: var(--muted); font-style: italic; }
+    .bookmarks-list :global(.bm-action) { flex: none; }
+    .bookmarks-list :global(.bm-edit-input) { min-height: 36px; font-size: 0.85rem; }
+    .bookmarks-list :global(.bm-empty) { color: var(--muted); font-size: 0.85rem; text-align: center; margin: 16px 8px; }
+
+    .session-bookmarks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .session-bookmarks :global(.bm-head) { font-weight: 700; font-size: 0.85rem; color: var(--text); }
+    .session-bookmarks :global(.bm-item) {
+      display: flex; align-items: baseline; gap: 10px; padding: 6px 10px;
+      border-left: 3px solid #b8860b; background: var(--surface); border-radius: 6px;
+    }
+    .session-bookmarks :global(.bm-time) { flex: none; color: var(--muted); font-size: 0.76rem; }
+    .session-bookmarks :global(.bm-by) { flex: none; font-size: 0.8rem; font-weight: 700; color: var(--accent); }
+    .session-bookmarks :global(.bm-label) { font-size: 0.85rem; color: var(--text); overflow-wrap: anywhere; }
+
     @media (max-width: 768px) {
       #call { flex-direction: column; }
+      .bookmarks-panel {
+        position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 50vh;
+        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
+      }
+      .bookmarks-panel.closed { margin-right: 0; }
+      .bookmarks-panel.open { transform: translateY(0); }
       .chat-panel {
         position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 62vh;
         border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;

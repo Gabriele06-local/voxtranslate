@@ -429,6 +429,204 @@ async fn subtitles_download_as_srt_and_vtt() {
     assert_eq!(unauth.status(), 401);
 }
 
+/// Bookmark CRUD (spec 0013): instant pin + later relabel, owner-only
+/// mutations, shared visibility across participants, export integration, and
+/// the FK cascade when the session goes away.
+#[tokio::test]
+async fn bookmarks_crud_gates_and_export() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (tess, tess_jwt) = login(&srv, "Tess").await;
+    let (bob, bob_jwt) = login(&srv, "Bob").await;
+    let room = format!("bm-{}", Uuid::new_v4().simple());
+    let session_id = Uuid::new_v4();
+
+    // Seed a two-participant session directly through the service.
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, &room).await.unwrap();
+    svc.participant_joined(session_id, "tess-peer", Some(tess), "Tess", "it")
+        .await
+        .unwrap();
+    svc.participant_joined(session_id, "bob-peer", Some(bob), "Bob", "en")
+        .await
+        .unwrap();
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+    let bookmarks_url = format!("{base}/api/sessions/{session_id}/bookmarks");
+
+    // Instant pin: empty body -> server stamps "now", no label yet.
+    let created = http
+        .post(&bookmarks_url)
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+    let bm: serde_json::Value = created.json().await.unwrap();
+    let bid = bm["id"].as_str().expect("bookmark id").to_string();
+    assert_eq!(bm["by"], "Tess");
+    assert_eq!(bm["mine"], true);
+    assert!(bm["label"].is_null());
+    assert!(bm["ts"].is_string());
+
+    // Labels are capped at 200 chars.
+    let too_long = http
+        .post(&bookmarks_url)
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({ "label": "x".repeat(201) }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(too_long.status(), 400);
+
+    // Relabel afterwards (the in-call input PATCHes) — whitespace trimmed.
+    let tess_bm_url = format!("{bookmarks_url}/{bid}");
+    let patched = http
+        .patch(&tess_bm_url)
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({ "label": "  decision made  " }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(patched.status(), 204);
+
+    // Bob pins with an explicit (earlier) ts + label of his own.
+    let earlier = chrono::Utc::now() - chrono::Duration::seconds(60);
+    let bob_created = http
+        .post(&bookmarks_url)
+        .bearer_auth(&bob_jwt)
+        .json(&serde_json::json!({ "ts": earlier, "label": "Bob's moment" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bob_created.status(), 201);
+    let bob_bm: serde_json::Value = bob_created.json().await.unwrap();
+    let bob_bid = bob_bm["id"].as_str().unwrap().to_string();
+
+    // Both participants see both pins, chronological, with viewer-relative `mine`.
+    let rows: serde_json::Value = http
+        .get(&bookmarks_url)
+        .bearer_auth(&bob_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["by"], "Bob", "explicit earlier ts sorts first");
+    assert_eq!(rows[0]["mine"], true);
+    assert_eq!(rows[1]["by"], "Tess");
+    assert_eq!(rows[1]["mine"], false);
+    assert_eq!(rows[1]["label"], "decision made");
+
+    // Blank label PATCH clears it.
+    let cleared = http
+        .patch(format!("{bookmarks_url}/{bob_bid}"))
+        .bearer_auth(&bob_jwt)
+        .json(&serde_json::json!({ "label": "   " }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cleared.status(), 204);
+
+    // Owner-only mutations: Bob can't touch Tess's pin; unknown id is 404.
+    let hijack = http
+        .patch(&tess_bm_url)
+        .bearer_auth(&bob_jwt)
+        .json(&serde_json::json!({ "label": "hijack" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(hijack.status(), 403);
+    let steal = http
+        .delete(&tess_bm_url)
+        .bearer_auth(&bob_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(steal.status(), 403);
+    let missing = http
+        .delete(format!("{bookmarks_url}/{}", Uuid::new_v4()))
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
+    // Gates: stranger 403, no token 401, unknown session 404.
+    let (_eve, eve_jwt) = login(&srv, "Eve").await;
+    let forbidden = http
+        .get(&bookmarks_url)
+        .bearer_auth(&eve_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+    let forbidden_post = http
+        .post(&bookmarks_url)
+        .bearer_auth(&eve_jwt)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden_post.status(), 403);
+    let unauth = http.get(&bookmarks_url).send().await.unwrap();
+    assert_eq!(unauth.status(), 401);
+    let unknown = http
+        .get(format!("{base}/api/sessions/{}/bookmarks", Uuid::new_v4()))
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404);
+
+    // The JSON transcript embeds the bookmarks chronologically (names only —
+    // user ids never leave the server).
+    let doc: serde_json::Value = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.json"))
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let exported = doc["bookmarks"].as_array().expect("bookmarks array");
+    assert_eq!(exported.len(), 2);
+    assert_eq!(exported[0]["by"], "Bob");
+    assert!(exported[0]["label"].is_null(), "cleared label exports null");
+    assert_eq!(exported[1]["label"], "decision made");
+    assert!(exported[0].get("id").is_none(), "export carries no ids");
+
+    // Owner delete works...
+    let deleted = http
+        .delete(&tess_bm_url)
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), 204);
+    // ...and the FK cascade clears the rest when the session is purged.
+    sqlx::query("DELETE FROM call_sessions WHERE id = $1")
+        .bind(session_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM transcript_bookmarks WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(left, 0, "bookmarks cascade with the session");
+}
+
 #[tokio::test]
 async fn guest_only_session_is_purged_on_end() {
     let Some(srv) = setup().await else {

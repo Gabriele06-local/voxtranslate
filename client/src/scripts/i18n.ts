@@ -67,6 +67,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: 'Transcript', openBtn: 'Open', loadFailed: 'Could not load — please try again',
     downloadSrt: 'Download SRT', downloadVtt: 'Download VTT', subtitleMode: 'Subtitle language',
     subTranslated: 'Translated', subOriginal: 'Original', subBoth: 'Original + translation',
+    bookmarkTip: 'Bookmark this moment', bookmarkAdded: 'Bookmark added', bookmarkFailed: 'Could not save the bookmark',
+    bookmarkLabelPh: 'Add a label (optional)…', bookmarksTitle: 'Bookmarks', bookmarksEmpty: 'No bookmarks yet',
+    bookmarkNoLabel: 'No label', bookmarkEdit: 'Edit label', bookmarkDelete: 'Delete bookmark',
+    saveBtn: 'Save', showAllBookmarks: 'All bookmarks',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -119,6 +123,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: 'Trascrizione', openBtn: 'Apri', loadFailed: 'Caricamento non riuscito — riprova',
     downloadSrt: 'Scarica SRT', downloadVtt: 'Scarica VTT', subtitleMode: 'Lingua sottotitoli',
     subTranslated: 'Tradotto', subOriginal: 'Originale', subBoth: 'Originale + traduzione',
+    bookmarkTip: 'Salva questo momento', bookmarkAdded: 'Segnalibro aggiunto', bookmarkFailed: 'Impossibile salvare il segnalibro',
+    bookmarkLabelPh: "Aggiungi un'etichetta (facoltativa)…", bookmarksTitle: 'Segnalibri', bookmarksEmpty: 'Ancora nessun segnalibro',
+    bookmarkNoLabel: 'Senza etichetta', bookmarkEdit: 'Modifica etichetta', bookmarkDelete: 'Elimina segnalibro',
+    saveBtn: 'Salva', showAllBookmarks: 'Tutti i segnalibri',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -171,6 +179,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: 'Transcripción', openBtn: 'Abrir', loadFailed: 'No se pudo cargar — inténtalo de nuevo',
     downloadSrt: 'Descargar SRT', downloadVtt: 'Descargar VTT', subtitleMode: 'Idioma de subtítulos',
     subTranslated: 'Traducido', subOriginal: 'Original', subBoth: 'Original + traducción',
+    bookmarkTip: 'Marcar este momento', bookmarkAdded: 'Marcador añadido', bookmarkFailed: 'No se pudo guardar el marcador',
+    bookmarkLabelPh: 'Añade una etiqueta (opcional)…', bookmarksTitle: 'Marcadores', bookmarksEmpty: 'Aún no hay marcadores',
+    bookmarkNoLabel: 'Sin etiqueta', bookmarkEdit: 'Editar etiqueta', bookmarkDelete: 'Eliminar marcador',
+    saveBtn: 'Guardar', showAllBookmarks: 'Todos los marcadores',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -223,6 +235,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: 'Transcription', openBtn: 'Ouvrir', loadFailed: 'Chargement impossible — réessayez',
     downloadSrt: 'Télécharger le SRT', downloadVtt: 'Télécharger le VTT', subtitleMode: 'Langue des sous-titres',
     subTranslated: 'Traduit', subOriginal: 'Original', subBoth: 'Original + traduction',
+    bookmarkTip: 'Marquer ce moment', bookmarkAdded: 'Signet ajouté', bookmarkFailed: "Impossible d'enregistrer le signet",
+    bookmarkLabelPh: 'Ajoutez un libellé (facultatif)…', bookmarksTitle: 'Signets', bookmarksEmpty: 'Aucun signet pour le moment',
+    bookmarkNoLabel: 'Sans libellé', bookmarkEdit: 'Modifier le libellé', bookmarkDelete: 'Supprimer le signet',
+    saveBtn: 'Enregistrer', showAllBookmarks: 'Tous les signets',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -275,6 +291,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: 'Transkript', openBtn: 'Öffnen', loadFailed: 'Laden fehlgeschlagen — bitte erneut versuchen',
     downloadSrt: 'SRT herunterladen', downloadVtt: 'VTT herunterladen', subtitleMode: 'Untertitelsprache',
     subTranslated: 'Übersetzt', subOriginal: 'Original', subBoth: 'Original + Übersetzung',
+    bookmarkTip: 'Diesen Moment markieren', bookmarkAdded: 'Lesezeichen hinzugefügt', bookmarkFailed: 'Lesezeichen konnte nicht gespeichert werden',
+    bookmarkLabelPh: 'Beschriftung hinzufügen (optional)…', bookmarksTitle: 'Lesezeichen', bookmarksEmpty: 'Noch keine Lesezeichen',
+    bookmarkNoLabel: 'Ohne Beschriftung', bookmarkEdit: 'Beschriftung bearbeiten', bookmarkDelete: 'Lesezeichen löschen',
+    saveBtn: 'Speichern', showAllBookmarks: 'Alle Lesezeichen',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -327,6 +347,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: 'Transcrição', openBtn: 'Abrir', loadFailed: 'Falha ao carregar — tente novamente',
     downloadSrt: 'Baixar SRT', downloadVtt: 'Baixar VTT', subtitleMode: 'Idioma das legendas',
     subTranslated: 'Traduzido', subOriginal: 'Original', subBoth: 'Original + tradução',
+    bookmarkTip: 'Marcar este momento', bookmarkAdded: 'Marcador adicionado', bookmarkFailed: 'Não foi possível salvar o marcador',
+    bookmarkLabelPh: 'Adicione um rótulo (opcional)…', bookmarksTitle: 'Marcadores', bookmarksEmpty: 'Ainda não há marcadores',
+    bookmarkNoLabel: 'Sem rótulo', bookmarkEdit: 'Editar rótulo', bookmarkDelete: 'Excluir marcador',
+    saveBtn: 'Salvar', showAllBookmarks: 'Todos os marcadores',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -379,6 +403,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: '文字起こし', openBtn: '開く', loadFailed: '読み込みに失敗しました — もう一度お試しください',
     downloadSrt: 'SRTをダウンロード', downloadVtt: 'VTTをダウンロード', subtitleMode: '字幕の言語',
     subTranslated: '翻訳', subOriginal: '原文', subBoth: '原文+翻訳',
+    bookmarkTip: 'この瞬間をブックマーク', bookmarkAdded: 'ブックマークを追加しました', bookmarkFailed: 'ブックマークを保存できませんでした',
+    bookmarkLabelPh: 'ラベルを追加（任意）…', bookmarksTitle: 'ブックマーク', bookmarksEmpty: 'ブックマークはまだありません',
+    bookmarkNoLabel: 'ラベルなし', bookmarkEdit: 'ラベルを編集', bookmarkDelete: 'ブックマークを削除',
+    saveBtn: '保存', showAllBookmarks: 'すべてのブックマーク',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -431,6 +459,10 @@ export const I18N: Record<string, Dict> = {
     transcriptLabel: '转录', openBtn: '打开', loadFailed: '加载失败 — 请重试',
     downloadSrt: '下载 SRT', downloadVtt: '下载 VTT', subtitleMode: '字幕语言',
     subTranslated: '译文', subOriginal: '原文', subBoth: '原文+译文',
+    bookmarkTip: '收藏此刻', bookmarkAdded: '已添加书签', bookmarkFailed: '无法保存书签',
+    bookmarkLabelPh: '添加标签（可选）…', bookmarksTitle: '书签', bookmarksEmpty: '暂无书签',
+    bookmarkNoLabel: '无标签', bookmarkEdit: '编辑标签', bookmarkDelete: '删除书签',
+    saveBtn: '保存', showAllBookmarks: '所有书签',
   },
 };
 

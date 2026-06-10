@@ -174,6 +174,14 @@ pub fn app(state: AppState) -> Router {
             "/api/sessions/{id}/transcript.vtt",
             get(api::transcript_vtt),
         )
+        .route(
+            "/api/sessions/{id}/bookmarks",
+            get(api::bookmarks_list).post(api::bookmark_add),
+        )
+        .route(
+            "/api/sessions/{id}/bookmarks/{bid}",
+            axum::routing::patch(api::bookmark_update).delete(api::bookmark_delete),
+        )
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))
         .route("/api/user/data", get(api::export_data))

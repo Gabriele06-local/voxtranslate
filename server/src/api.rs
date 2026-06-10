@@ -17,10 +17,12 @@ use uuid::Uuid;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
+use chrono::{DateTime, Utc};
+
 use crate::billing::usd;
 use crate::middleware::AuthUser;
 use crate::stripe_handler;
-use crate::transcripts::SessionAccess;
+use crate::transcripts::{BookmarkMutation, SessionAccess, TranscriptService};
 use crate::AppState;
 
 /// `GET /api/billing/packages` — the credit catalog (without `stripe_price_id`).
@@ -527,6 +529,158 @@ async fn subtitles_response(
         body,
     )
         .into_response()
+}
+
+#[derive(Deserialize, Default)]
+pub struct BookmarkCreate {
+    /// Moment to pin; default = server "now" (the in-call 🔖 button posts
+    /// instantly, avoiding client clock skew, and labels afterwards).
+    pub ts: Option<DateTime<Utc>>,
+    pub label: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct BookmarkPatch {
+    /// `null` / empty clears the label.
+    pub label: Option<String>,
+}
+
+/// Trim a bookmark label: empty → `None`, > 200 chars → 400.
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
+fn clean_label(label: Option<String>) -> Result<Option<String>, Response> {
+    let Some(l) = label else { return Ok(None) };
+    let l = l.trim();
+    if l.chars().count() > 200 {
+        return Err((StatusCode::BAD_REQUEST, "label too long").into_response());
+    }
+    Ok((!l.is_empty()).then(|| l.to_string()))
+}
+
+/// Shared 404/403 access gate for session-scoped endpoints.
+async fn session_gate(
+    svc: &TranscriptService,
+    session_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), Response> {
+    match svc.access(session_id, user_id).await {
+        Ok(SessionAccess::Ok) => Ok(()),
+        Ok(SessionAccess::NotFound) => {
+            Err((StatusCode::NOT_FOUND, "no such session").into_response())
+        }
+        Ok(SessionAccess::Forbidden) => {
+            Err((StatusCode::FORBIDDEN, "not a participant").into_response())
+        }
+        Err(e) => {
+            tracing::error!("transcript access check failed: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response())
+        }
+    }
+}
+
+/// `GET /api/sessions/{id}/bookmarks` — every participant's pins, chronological.
+/// Participants only (404 unknown / 403 stranger). No flush needed: session and
+/// participant rows insert synchronously, only events go through the channel.
+pub async fn bookmarks_list(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match svc.list_bookmarks(session_id, user.user_id).await {
+        Ok(rows) => Json(rows).into_response(),
+        Err(e) => {
+            tracing::error!("bookmark list failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `POST /api/sessions/{id}/bookmarks` — pin a moment (201 + the bookmark).
+pub async fn bookmark_add(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<BookmarkCreate>,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    let label = match clean_label(body.label) {
+        Ok(l) => l,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match svc
+        .add_bookmark(session_id, user.user_id, body.ts, label.as_deref())
+        .await
+    {
+        Ok(b) => (StatusCode::CREATED, Json(b)).into_response(),
+        Err(e) => {
+            tracing::error!("bookmark insert failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `PATCH /api/sessions/{id}/bookmarks/{bid}` — relabel; owner only.
+pub async fn bookmark_update(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((session_id, bookmark_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<BookmarkPatch>,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    let label = match clean_label(body.label) {
+        Ok(l) => l,
+        Err(resp) => return resp,
+    };
+    let outcome = svc
+        .update_bookmark_label(session_id, bookmark_id, user.user_id, label.as_deref())
+        .await;
+    bookmark_mutation_response(outcome, "bookmark update")
+}
+
+/// `DELETE /api/sessions/{id}/bookmarks/{bid}` — owner only.
+pub async fn bookmark_delete(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((session_id, bookmark_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    let outcome = svc
+        .delete_bookmark(session_id, bookmark_id, user.user_id)
+        .await;
+    bookmark_mutation_response(outcome, "bookmark delete")
+}
+
+fn bookmark_mutation_response(
+    outcome: Result<BookmarkMutation, sqlx::Error>,
+    what: &str,
+) -> Response {
+    match outcome {
+        Ok(BookmarkMutation::Ok) => StatusCode::NO_CONTENT.into_response(),
+        Ok(BookmarkMutation::Forbidden) => {
+            (StatusCode::FORBIDDEN, "not your bookmark").into_response()
+        }
+        Ok(BookmarkMutation::NotFound) => {
+            (StatusCode::NOT_FOUND, "no such bookmark").into_response()
+        }
+        Err(e) => {
+            tracing::error!("{what} failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
 }
 
 /// `voxtranslate-{room_slug}-{id8}.{ext}` — the room slug is filtered to
