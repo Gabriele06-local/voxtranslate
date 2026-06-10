@@ -128,6 +128,17 @@ the inputs (days, reason, amount, …). Set `actor` to `{{$accountability.user}}
 `action` for Resolve report is `resolved` or `dismissed`. Every call writes an
 `admin_audit` row, so the `admin_audit` collection is your full action history.
 
+## Visual walkthrough
+
+Screenshots of the actual screens (in `directus/screenshots/`):
+
+1. **Data Model** (`1-data-model.png`) — your DB tables ready to enable as collections.
+2. **Flows → Create Flow** (`2-flows.png`).
+3. **Flow Setup** (`3-flow-setup.png`) — name the flow (e.g. "Ban user").
+4. **Trigger Setup** (`4-flow-trigger.png`) — pick **Manual** (runs from a button on
+   the selected collection); then add a **Webhook / Request URL** operation with the
+   values from the table in §7.
+
 ## 8. Verify end-to-end
 
 1. Edit a UI string (e.g. `connect`) in Directus → reload the app → the new label
