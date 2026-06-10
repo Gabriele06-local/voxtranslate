@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::billing::usd;
 use crate::middleware::AuthUser;
 use crate::stripe_handler;
+use crate::transcripts::SessionAccess;
 use crate::AppState;
 
 /// `GET /api/billing/packages` — the credit catalog (without `stripe_price_id`).
@@ -178,8 +179,232 @@ fn service_unavailable() -> Response {
         .into_response()
 }
 
+/// `GET /api/sessions` — call sessions the user took part in, newest first.
+pub async fn sessions_list(State(state): State<AppState>, user: AuthUser) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    // Barrier so just-finished calls show their final event counts.
+    svc.flush().await;
+    match svc.list_sessions(user.user_id, 50).await {
+        Ok(rows) => Json(rows).into_response(),
+        Err(e) => {
+            tracing::error!("sessions query failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `GET /api/sessions/{id}/transcript.json` — download the transcript as
+/// pretty-printed JSON. Participants only (404 unknown / 403 stranger).
+pub async fn transcript_json(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+    // Barrier kills the leave-then-download race and enables live mid-call export.
+    svc.flush().await;
+
+    match svc.access(session_id, user.user_id).await {
+        Ok(SessionAccess::Ok) => {}
+        Ok(SessionAccess::NotFound) => {
+            return (StatusCode::NOT_FOUND, "no such session").into_response()
+        }
+        Ok(SessionAccess::Forbidden) => {
+            return (StatusCode::FORBIDDEN, "not a participant").into_response()
+        }
+        Err(e) => {
+            tracing::error!("transcript access check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        // Purged between the access check and here (guest-only finalize race).
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+
+    let body = match serde_json::to_string_pretty(&export) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("transcript serialization failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "export failed").into_response();
+        }
+    };
+    let filename = transcript_filename(&export.session.room_name, session_id, "json");
+    (
+        [
+            (header::CONTENT_TYPE, "application/json".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+#[derive(Deserialize, Default)]
+pub struct TranscriptPdfQuery {
+    /// IANA timezone for displayed times (e.g. `Europe/Rome`); bogus → UTC.
+    pub tz: Option<String>,
+    /// Translation language to show per event; default = the requester's own
+    /// participant language for that session, fallback `en`.
+    pub lang: Option<String>,
+}
+
+/// `GET /api/sessions/{id}/transcript.pdf?tz=Europe/Rome&lang=it` — download
+/// the transcript as a typst-rendered PDF. Same auth gates as the JSON export,
+/// plus a per-user rate limit (PDF compilation is CPU-bound).
+pub async fn transcript_pdf(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Query(q): Query<TranscriptPdfQuery>,
+) -> Response {
+    let Some(svc) = state.transcripts.as_ref() else {
+        return service_unavailable();
+    };
+
+    // Throttle before any work — rendering costs real CPU (5 / minute).
+    if !state
+        .rate_limiter
+        .allow(&format!("pdf:{}", user.user_id), 5, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+
+    // Barrier kills the leave-then-download race and enables live mid-call export.
+    svc.flush().await;
+
+    match svc.access(session_id, user.user_id).await {
+        Ok(SessionAccess::Ok) => {}
+        Ok(SessionAccess::NotFound) => {
+            return (StatusCode::NOT_FOUND, "no such session").into_response()
+        }
+        Ok(SessionAccess::Forbidden) => {
+            return (StatusCode::FORBIDDEN, "not a participant").into_response()
+        }
+        Err(e) => {
+            tracing::error!("transcript access check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        // Purged between the access check and here (guest-only finalize race).
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+
+    let tz =
+        q.tz.as_deref()
+            .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
+            .unwrap_or(chrono_tz::UTC);
+    let lang = match q.lang {
+        Some(l) => l,
+        None => svc
+            .participant_lang(session_id, user.user_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "en".to_string()),
+    };
+
+    let doc_json = match serde_json::to_string(&crate::pdf::build_pdf_doc(&export, tz, &lang)) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("pdf doc serialization failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "export failed").into_response();
+        }
+    };
+    // typst compilation is CPU-bound — keep it off the async runtime.
+    let rendered =
+        tokio::task::spawn_blocking(move || crate::pdf::render_transcript_pdf(&doc_json)).await;
+    let pdf = match rendered {
+        Ok(Ok(pdf)) => pdf,
+        Ok(Err(e)) => {
+            tracing::error!("transcript pdf render failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "pdf render failed").into_response();
+        }
+        Err(e) => {
+            tracing::error!("transcript pdf task panicked: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "pdf render failed").into_response();
+        }
+    };
+
+    let filename = transcript_filename(&export.session.room_name, session_id, "pdf");
+    (
+        [
+            (header::CONTENT_TYPE, "application/pdf".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        pdf.bytes,
+    )
+        .into_response()
+}
+
+/// `voxtranslate-{room_slug}-{id8}.{ext}` — the room slug is filtered to
+/// `[A-Za-z0-9_-]` so user-chosen room names can't inject header syntax.
+fn transcript_filename(room: &str, session_id: Uuid, ext: &str) -> String {
+    let slug: String = room
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(40)
+        .collect();
+    let slug = if slug.is_empty() { "room".into() } else { slug };
+    let id = session_id.to_string();
+    let id8 = &id[..8];
+    format!("voxtranslate-{slug}-{id8}.{ext}")
+}
+
 /// The ToS/Privacy version a consent is recorded against.
 pub const CURRENT_TOS_VERSION: &str = "2026-06-10";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transcript_filename_sanitizes_room_names() {
+        let sid = Uuid::parse_str("a1b2c3d4-0000-0000-0000-000000000000").unwrap();
+        assert_eq!(
+            transcript_filename("my-room_1", sid, "json"),
+            "voxtranslate-my-room_1-a1b2c3d4.json"
+        );
+        // Header-injection / quote-breaking characters are stripped.
+        assert_eq!(
+            transcript_filename("evil\"; rm -rf /\r\nX: y", sid, "pdf"),
+            "voxtranslate-evilrm-rfXy-a1b2c3d4.pdf"
+        );
+        // Nothing survivable -> generic slug; long names truncated to 40 chars.
+        assert_eq!(
+            transcript_filename("🎉🎉🎉", sid, "json"),
+            "voxtranslate-room-a1b2c3d4.json"
+        );
+        let long = "x".repeat(80);
+        assert_eq!(
+            transcript_filename(&long, sid, "json"),
+            format!("voxtranslate-{}-a1b2c3d4.json", "x".repeat(40))
+        );
+    }
+}
 
 #[derive(Deserialize)]
 pub struct ReportRequest {

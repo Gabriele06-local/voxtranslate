@@ -17,11 +17,13 @@ pub mod deepgram;
 pub mod groq;
 pub mod middleware;
 pub mod moderation;
+pub mod pdf;
 pub mod protocol;
 pub mod rate_limit;
 pub mod rooms;
 pub mod safety;
 pub mod stripe_handler;
+pub mod transcripts;
 pub mod translator;
 pub mod usage;
 
@@ -52,6 +54,7 @@ use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
 use crate::rate_limit::RateLimiter;
 use crate::rooms::{Peer, RoomManager, Visibility};
 use crate::safety::SafetyService;
+use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use crate::translator::Translator;
 use crate::usage::{run_guest_meter, run_usage_meter, MeterConfig};
 
@@ -67,6 +70,8 @@ pub struct AppState {
     pub billing: Option<BillingService>,
     /// Trust & safety + GDPR service — `Some` only when the database is configured.
     pub safety: Option<SafetyService>,
+    /// Transcript persistence/export — `Some` only when the database is configured.
+    pub transcripts: Option<TranscriptService>,
     /// Verifies Google credentials (swappable for tests).
     pub verifier: Arc<dyn TokenVerifier>,
     /// Shared HTTP client (Google tokeninfo, Stripe).
@@ -98,6 +103,7 @@ impl AppState {
             pool: None,
             billing: None,
             safety: None,
+            transcripts: None,
             verifier,
             http,
             rate_limiter: Arc::new(RateLimiter::new()),
@@ -119,6 +125,7 @@ impl AppState {
             let min_join = usd(billing.pricing.min_balance_to_join);
             state.billing = Some(BillingService::new(pool.clone(), min_join));
             state.safety = Some(SafetyService::new(pool.clone()));
+            state.transcripts = Some(TranscriptService::new(pool.clone()));
             // Layer the DB-managed blocklist over the env baseline.
             let db_terms = content::load_blocklist_terms(&pool).await;
             state.moderator = Arc::new(Moderator::from_env().with_terms(db_terms));
@@ -148,6 +155,15 @@ pub fn app(state: AppState) -> Router {
         .route("/api/billing/webhook", post(api::billing_webhook))
         .route("/api/billing/history", get(api::billing_history))
         .route("/api/usage/sessions", get(api::usage_sessions))
+        .route("/api/sessions", get(api::sessions_list))
+        .route(
+            "/api/sessions/{id}/transcript.json",
+            get(api::transcript_json),
+        )
+        .route(
+            "/api/sessions/{id}/transcript.pdf",
+            get(api::transcript_pdf),
+        )
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))
         .route("/api/user/data", get(api::export_data))
@@ -202,13 +218,21 @@ pub async fn serve() {
         }
     };
 
-    // Periodic cleanup of rooms whose peers have all disconnected.
+    // Periodic cleanup of rooms whose peers have all disconnected; their call
+    // sessions are finalized (flush + ended_at + guest-only purge).
     let rooms = state.rooms.clone();
+    let transcripts = state.transcripts.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(30));
         loop {
             tick.tick().await;
-            rooms.prune();
+            for sid in rooms.prune() {
+                if let Some(svc) = transcripts.as_ref() {
+                    if let Err(e) = svc.finalize_session(sid).await {
+                        tracing::error!("finalize pruned session {sid} failed: {e}");
+                    }
+                }
+            }
         }
     });
 
@@ -440,8 +464,8 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         tx: out_tx.clone(),
     };
 
-    let existing = match state.rooms.join(&room, peer, visibility) {
-        Ok(existing) => existing,
+    let joined = match state.rooms.join(&room, peer, visibility) {
+        Ok(joined) => joined,
         Err(()) => {
             // Room full — tell the peer directly and close.
             let _ = ws_tx
@@ -451,13 +475,38 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             return;
         }
     };
+    let session_id = joined.session_id;
+    let existing = joined.existing;
     tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
+
+    // Transcript persistence: ensure the session row exists (first joiner wins)
+    // and record this participant. `participant_row` is kept for `left_at`.
+    let participant_row = match state.transcripts.as_ref() {
+        Some(svc) => {
+            if let Err(e) = svc.session_started(session_id, &room).await {
+                tracing::error!("transcript session_started failed: {e}");
+            }
+            match svc
+                .participant_joined(session_id, &id, billed_user, &name, &lang)
+                .await
+            {
+                Ok(pid) => Some(pid),
+                Err(e) => {
+                    tracing::error!("transcript participant_joined failed: {e}");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
 
     // Tell the new peer its id + the peers already present (it will connect to them).
     let _ = out_tx.send(
         ServerMessage::RoomJoined {
             peer_id: id.clone(),
             peers: existing,
+            // Doubles as the client's "transcript recording on" signal.
+            session_id: state.transcripts.as_ref().map(|_| session_id.to_string()),
         }
         .to_json(),
     );
@@ -521,8 +570,18 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                     Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
                         Ok(ClientMessage::Start) => {
                             if audio_tx.is_none() {
-                                audio_tx =
-                                    start_speaking_session(&state, &room, &id, &name, &lang).await;
+                                audio_tx = start_speaking_session(
+                                    &state,
+                                    deepgram::SpeakerCtx {
+                                        room: room.clone(),
+                                        speaker_id: id.clone(),
+                                        speaker_name: name.clone(),
+                                        speaker_lang: lang.clone(),
+                                        session_id,
+                                        speaker_user_id: billed_user,
+                                    },
+                                )
+                                .await;
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,
@@ -574,7 +633,19 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     .to_json(),
                                 );
                             } else {
-                                handle_chat(&state, &room, &id, &name, &lang, &avatar_url, text);
+                                handle_chat(
+                                    &state,
+                                    deepgram::SpeakerCtx {
+                                        room: room.clone(),
+                                        speaker_id: id.clone(),
+                                        speaker_name: name.clone(),
+                                        speaker_lang: lang.clone(),
+                                        session_id,
+                                        speaker_user_id: billed_user,
+                                    },
+                                    &avatar_url,
+                                    text,
+                                );
                             }
                         }
                         Ok(ClientMessage::MuteAudio { muted }) => {
@@ -645,43 +716,64 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     if let (Some(sid), Some(svc)) = (usage_session_id, state.billing.as_ref()) {
         let _ = svc.finalize_session(sid).await;
     }
-    state.rooms.remove(&room, &id);
+    if let (Some(pid), Some(svc)) = (participant_row, state.transcripts.as_ref()) {
+        if let Err(e) = svc.participant_left(pid).await {
+            tracing::error!("transcript participant_left failed: {e}");
+        }
+    }
+    // The last leaver's removal ends the call session: flush + finalize it.
+    if let Some(ended) = state.rooms.remove(&room, &id) {
+        if let Some(svc) = state.transcripts.as_ref() {
+            if let Err(e) = svc.finalize_session(ended).await {
+                tracing::error!("finalize transcript session {ended} failed: {e}");
+            }
+        }
+    }
     state
         .rooms
         .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
     send_task.abort();
 }
 
-/// Translate a chat message into every language in the room (parallel) and
-/// broadcast it to everyone, including the sender.
+/// Translate a chat message into every language in the room (parallel), persist
+/// it to the transcript, and broadcast it to everyone, including the sender.
+/// (Moderation-blocked messages never reach here, so they are never persisted.)
 fn handle_chat(
     state: &AppState,
-    room: &str,
-    id: &str,
-    name: &str,
-    lang: &str,
+    ctx: deepgram::SpeakerCtx,
     avatar_url: &Option<String>,
     text: String,
 ) {
     let rooms = state.rooms.clone();
     let translator = state.translator.clone();
-    let room = room.to_string();
-    let sender_id = id.to_string();
-    let sender_name = name.to_string();
-    let sender_lang = lang.to_string();
+    let transcripts = state.transcripts.clone();
     let sender_avatar = avatar_url.clone();
     let timestamp = now_unix();
+    let ts = chrono::Utc::now(); // capture send time before the translation await
     tokio::spawn(async move {
-        let targets = rooms.get_room_languages(&room, &sender_id);
+        let targets = rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
         let translations = translator
-            .translate_fanout(&text, &sender_lang, &targets)
+            .translate_fanout(&text, &ctx.speaker_lang, &targets)
             .await;
+        if let Some(svc) = transcripts.as_ref() {
+            svc.record(TranscriptEvent {
+                session_id: ctx.session_id,
+                kind: EventKind::Chat,
+                speaker_peer_id: ctx.speaker_id.clone(),
+                speaker_user_id: ctx.speaker_user_id,
+                speaker_name: ctx.speaker_name.clone(),
+                original_text: text.clone(),
+                original_lang: ctx.speaker_lang.clone(),
+                translations: translations.clone(),
+                ts,
+            });
+        }
         rooms.broadcast(
-            &room,
+            &ctx.room,
             &ServerMessage::ChatMessage {
-                sender_id,
-                sender_name,
-                sender_lang,
+                sender_id: ctx.speaker_id,
+                sender_name: ctx.speaker_name,
+                sender_lang: ctx.speaker_lang,
                 sender_avatar,
                 original: text,
                 translations,
@@ -696,12 +788,9 @@ fn handle_chat(
 /// forwarder + subtitle router. Returns the audio sender, or `None` on failure.
 async fn start_speaking_session(
     state: &AppState,
-    room: &str,
-    id: &str,
-    name: &str,
-    lang: &str,
+    ctx: deepgram::SpeakerCtx,
 ) -> Option<UnboundedSender<Vec<u8>>> {
-    match deepgram::open_deepgram_ws(lang, &state.config).await {
+    match deepgram::open_deepgram_ws(&ctx.speaker_lang, &state.config).await {
         Ok((dg_sink, dg_source)) => {
             let (audio_tx, audio_rx) = mpsc::unbounded_channel::<Vec<u8>>();
             tokio::spawn(deepgram::forward_audio(audio_rx, dg_sink));
@@ -710,18 +799,16 @@ async fn start_speaking_session(
                 state.rooms.clone(),
                 state.translator.clone(),
                 state.moderator.clone(),
-                room.to_string(),
-                id.to_string(),
-                name.to_string(),
-                lang.to_string(),
+                ctx,
+                state.transcripts.clone(),
             ));
             Some(audio_tx)
         }
         Err(e) => {
             tracing::error!("deepgram open failed: {e}");
             state.rooms.relay_to_peer(
-                room,
-                id,
+                &ctx.room,
+                &ctx.speaker_id,
                 &ServerMessage::Error {
                     message: "speech service unavailable".to_string(),
                     code: None,

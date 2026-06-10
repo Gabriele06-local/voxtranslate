@@ -23,7 +23,17 @@ SELECT json_build_object(
       FROM usage_sessions WHERE user_id = $1 ORDER BY started_at) s),
   'reports_filed', (SELECT coalesce(json_agg(r), '[]') FROM (
       SELECT room, reason, created_at
-      FROM reports WHERE reporter_user_id = $1 ORDER BY created_at) r)
+      FROM reports WHERE reporter_user_id = $1 ORDER BY created_at) r),
+  'call_sessions', (SELECT coalesce(json_agg(c), '[]') FROM (
+      SELECT cs.room, cs.started_at, cs.ended_at
+      FROM call_sessions cs
+      WHERE EXISTS (SELECT 1 FROM session_participants sp
+                    WHERE sp.session_id = cs.id AND sp.user_id = $1)
+      ORDER BY cs.started_at) c),
+  'transcript_events', (SELECT coalesce(json_agg(e), '[]') FROM (
+      SELECT te.event_type, te.original_text, te.original_lang, te.ts
+      FROM transcript_events te
+      WHERE te.speaker_user_id = $1 ORDER BY te.ts) e)
 )::text";
 
 /// Database operations for moderation + GDPR. Cheap to clone.
@@ -197,9 +207,41 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // Seed a call session the user took part in, with one spoken event,
+        // so the export's transcript sections have something to show.
+        let sid = Uuid::new_v4();
+        sqlx::query("INSERT INTO call_sessions (id, room) VALUES ($1, 'room-gdpr')")
+            .bind(sid)
+            .execute(&svc.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO session_participants (session_id, peer_id, user_id, name, lang)
+             VALUES ($1, 'peer-1', $2, 'T', 'it')",
+        )
+        .bind(sid)
+        .bind(uid)
+        .execute(&svc.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO transcript_events
+                 (session_id, event_type, speaker_peer_id, speaker_user_id, speaker_name,
+                  original_text, original_lang, ts)
+             VALUES ($1, 'speech', 'peer-1', $2, 'T', 'ciao', 'it', now())",
+        )
+        .bind(sid)
+        .bind(uid)
+        .execute(&svc.pool)
+        .await
+        .unwrap();
+
         let export = svc.export_user_data(uid).await.unwrap();
         assert!(export["profile"]["email"].is_string());
         assert_eq!(export["reports_filed"][0]["reason"], "harassment");
+        assert_eq!(export["call_sessions"][0]["room"], "room-gdpr");
+        assert_eq!(export["transcript_events"][0]["original_text"], "ciao");
 
         // Delete cascades.
         svc.delete_user(uid).await.unwrap();
@@ -216,5 +258,21 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(reports, 0, "reports cascade-deleted");
+        let participants: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM session_participants WHERE session_id = $1 AND user_id = $2",
+        )
+        .bind(sid)
+        .bind(uid)
+        .fetch_one(&svc.pool)
+        .await
+        .unwrap();
+        assert_eq!(participants, 0, "participant rows cascade-deleted");
+        let spoken: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM transcript_events WHERE speaker_user_id = $1")
+                .bind(uid)
+                .fetch_one(&svc.pool)
+                .await
+                .unwrap();
+        assert_eq!(spoken, 0, "spoken transcript events cascade-deleted");
     }
 }

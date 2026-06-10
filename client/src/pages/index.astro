@@ -137,13 +137,17 @@ const LANGS = [
         <header class="call-header">
           <button id="call-room" class="room-badge mono" title="Copy"></button>
           <span id="call-vis" class="vis-badge"></span>
+          <span id="transcript-indicator" class="transcript-indicator hidden" data-i18n-title="transcriptRecording"></span>
           <span id="call-balance" class="call-balance hidden"></span>
         </header>
         <div id="low-banner" class="low-banner hidden">
           <span id="low-banner-text"></span>
           <button id="low-banner-buy" class="btn-ghost" data-i18n="buyCredits"></button>
         </div>
-        <div class="video-stage"><div id="video-grid" class="video-grid" data-peers="1"></div></div>
+        <div class="video-stage">
+          <div id="video-grid" class="video-grid" data-peers="1"></div>
+          <span id="rec-badge" class="rec-badge hidden">REC <span class="rec-dot"></span> <span id="rec-timer">00:00</span></span>
+        </div>
         <div class="control-bar">
           <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
           <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
@@ -200,6 +204,7 @@ const LANGS = [
         <div class="modal-tabs">
           <button id="tab-history" class="seg-btn active" data-i18n="history"></button>
           <button id="tab-usage" class="seg-btn" data-i18n="usageHistory"></button>
+          <button id="tab-transcripts" class="seg-btn" data-i18n="transcripts"></button>
         </div>
         <div id="ledger-list" class="ledger-list"></div>
       </div>
@@ -268,6 +273,25 @@ const LANGS = [
         <div class="modal-actions">
           <button id="exhausted-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
           <button id="exhausted-buy" class="btn-primary" data-i18n="buyCredits"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== POST-CALL TRANSCRIPT MODAL ===================== -->
+    <div id="postcall-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow">
+        <div class="modal-head">
+          <span class="card-title" data-i18n="postCallTitle"></span>
+          <button id="postcall-close" class="btn-ghost icon-btn" aria-label="Close"></button>
+        </div>
+        <p class="modal-text postcall-summary">
+          <strong id="postcall-room" class="mono"></strong><br />
+          <span data-i18n="durationLabel"></span>: <span id="postcall-duration"></span> ·
+          <span id="postcall-events"></span> <span data-i18n="eventsLabel"></span>
+        </p>
+        <div class="modal-actions">
+          <button id="postcall-json" class="btn-ghost" data-i18n="downloadJson"></button>
+          <button id="postcall-pdf" class="btn-primary" data-i18n="downloadPdf"></button>
         </div>
       </div>
     </div>
@@ -383,12 +407,32 @@ const LANGS = [
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em;
       text-transform: uppercase; background: transparent; border: none; color: var(--text); padding: 0; cursor: pointer;
     }
+    /* Transcript-recording indicator (spec 0009): a subtle pulsing dot in the
+       call header, tooltip-only. Distinct from the video REC badge (spec 0010). */
+    .transcript-indicator { display: inline-flex; align-items: center; cursor: help; }
+    .transcript-indicator::before {
+      content: ''; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); animation: ti-pulse 2s ease-in-out infinite;
+    }
+    @keyframes ti-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
     /* The stage fills the space between header and control bar; the grid fills
        the stage. Videos use object-fit: cover so they fill each cell (proportions
        kept, minimal crop) — no black bars, centered, no scroll. JS picks the
        column/row tracks by peer count + orientation. */
-    .video-stage { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+    .video-stage { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+    /* Composite-recording badge (spec 0010): REC ● + elapsed MM:SS over the grid. */
+    .rec-badge {
+      position: absolute; top: 10px; left: 10px; z-index: 5;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.55);
+      color: #fff; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em;
+    }
+    .rec-badge #rec-timer { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .rec-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
+      animation: ti-pulse 1.2s ease-in-out infinite;
+    }
     .video-grid { display: grid; gap: 6px; width: 100%; height: 100%; }
     /* Video cells (and their children) are created in JS, so they don't get
        Astro's scoping attribute — target them with :global() under .video-grid.
@@ -534,6 +578,15 @@ const LANGS = [
     .ledger-list :global(.ledger-amount.pos) { color: var(--success); }
     .ledger-list :global(.ledger-amount.neg) { color: var(--danger); }
     .ledger-list :global(.ledger-empty) { color: var(--muted); text-align: center; padding: 12px 0; font-size: 0.85rem; }
+    /* Transcripts tab: compact per-row PDF/JSON download buttons (JS-created). */
+    .ledger-list :global(.ledger-actions) { display: flex; gap: 6px; flex: none; }
+    .ledger-list :global(.ledger-dl) {
+      background: transparent; border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 3px 9px; font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.15s;
+    }
+    .ledger-list :global(.ledger-dl:hover:not(:disabled)) { border-color: var(--accent); }
+    .ledger-list :global(.ledger-dl:disabled) { opacity: 0.45; cursor: not-allowed; }
 
     /* ---------- Consent / report / privacy / cookie ---------- */
     .consent-check { display: flex; align-items: flex-start; gap: 9px; text-align: left; font-size: 0.88rem; color: var(--text); cursor: pointer; }

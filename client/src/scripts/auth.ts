@@ -41,6 +41,15 @@ export interface UsageSession {
   ended_at?: string | null;
 }
 
+/** One row of `GET /api/sessions`: a recorded call the user took part in. */
+export interface CallSession {
+  id: string;
+  room: string;
+  started_at: string;
+  ended_at?: string | null;
+  event_count: number;
+}
+
 const TOKEN_KEY = 'vox.token';
 const USER_KEY = 'vox.user';
 
@@ -183,6 +192,53 @@ export async function fetchUsage(): Promise<UsageSession[]> {
   const res = await fetch(`${HTTP_BASE}/api/usage/sessions`, { headers: authHeaders() });
   if (!res.ok) return [];
   return (await res.json()) as UsageSession[];
+}
+
+/** Recorded call sessions (transcripts) the user took part in, newest first. */
+export async function fetchSessions(): Promise<CallSession[]> {
+  const res = await fetch(`${HTTP_BASE}/api/sessions`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  return (await res.json()) as CallSession[];
+}
+
+/** Trigger a browser download of a Blob under the given filename. */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Download a session transcript as JSON or PDF (authenticated). The PDF is
+ * localized to the browser timezone and `lang`. Returns false on failure
+ * (403/404/429/5xx) so callers can toast.
+ */
+export async function downloadTranscript(
+  sessionId: string,
+  format: 'json' | 'pdf',
+  lang = 'en',
+): Promise<boolean> {
+  let url = `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/transcript.${format}`;
+  if (format === 'pdf') {
+    let tz = 'UTC';
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      /* default to UTC */
+    }
+    url += `?tz=${encodeURIComponent(tz)}&lang=${encodeURIComponent(lang)}`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) return false;
+  const blob = await res.blob();
+  // Prefer the server-chosen filename from Content-Disposition.
+  const cd = res.headers.get('content-disposition') || '';
+  const name = /filename="([^"]+)"/.exec(cd)?.[1] || `voxtranslate-transcript.${format}`;
+  downloadBlob(blob, name);
+  return true;
 }
 
 /** Start a Stripe Checkout Session; returns the hosted URL to redirect to. */

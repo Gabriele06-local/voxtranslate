@@ -216,6 +216,103 @@ describe('safety + gdpr', () => {
   });
 });
 
+describe('transcripts', () => {
+  // downloadBlob touches `document` + `URL` object-url APIs — stub both and
+  // hand back the anchor so tests can assert href/download/click.
+  function stubDownloadDom() {
+    const anchor = { href: '', download: '', click: vi.fn() };
+    vi.stubGlobal('document', { createElement: vi.fn(() => anchor) });
+    // Subclass so `new URL(...)` keeps working (vite-node's module loader
+    // needs it) while the object-url statics become assertable mocks.
+    class StubURL extends URL {
+      static override createObjectURL = vi.fn(() => 'blob:mock');
+      static override revokeObjectURL = vi.fn();
+    }
+    vi.stubGlobal('URL', StubURL);
+    return anchor;
+  }
+
+  function blobResponse(contentDisposition: string | null) {
+    return {
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(['x']),
+      headers: { get: (k: string) => (k === 'content-disposition' ? contentDisposition : null) },
+    } as unknown as Response;
+  }
+
+  it('fetchSessions lists recorded calls with the auth header, [] on failure', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(okJson([{ id: 's1', room: 'r', started_at: 'x', event_count: 3 }]));
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await auth.fetchSessions())[0].event_count).toBe(3);
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/sessions');
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: 'Bearer t' });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('no', 401)));
+    expect(await auth.fetchSessions()).toEqual([]);
+  });
+
+  it('downloadBlob clicks a temporary object-url anchor and revokes it', async () => {
+    const auth = await fresh();
+    const anchor = stubDownloadDom();
+    auth.downloadBlob(new Blob(['x']), 'f.json');
+    expect(anchor.href).toBe('blob:mock');
+    expect(anchor.download).toBe('f.json');
+    expect(anchor.click).toHaveBeenCalledOnce();
+    expect((URL.revokeObjectURL as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('blob:mock');
+  });
+
+  it('downloadTranscript(pdf) sends tz + lang and uses the server filename', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    // Deterministic browser timezone (keep the rest of Intl intact).
+    vi.stubGlobal('Intl', {
+      ...Intl,
+      DateTimeFormat: function () {
+        return { resolvedOptions: () => ({ timeZone: 'Europe/Rome' }) };
+      },
+    });
+    const anchor = stubDownloadDom();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(blobResponse('attachment; filename="voxtranslate-room-abc12345.pdf"'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await auth.downloadTranscript('s1', 'pdf', 'it')).toBe(true);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain('/api/sessions/s1/transcript.pdf');
+    expect(url).toContain('tz=Europe%2FRome');
+    expect(url).toContain('lang=it');
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: 'Bearer t' });
+    expect(anchor.download).toBe('voxtranslate-room-abc12345.pdf');
+  });
+
+  it('downloadTranscript(json) has no query and falls back to a default name', async () => {
+    const auth = await fresh();
+    const anchor = stubDownloadDom();
+    const fetchMock = vi.fn().mockResolvedValue(blobResponse(null));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await auth.downloadTranscript('s2', 'json')).toBe(true);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain('/api/sessions/s2/transcript.json');
+    expect(url).not.toContain('?');
+    expect(anchor.download).toBe('voxtranslate-transcript.json');
+  });
+
+  it('downloadTranscript returns false on failure without downloading', async () => {
+    const auth = await fresh();
+    const anchor = stubDownloadDom();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('forbidden', 403)));
+    expect(await auth.downloadTranscript('s3', 'json')).toBe(false);
+    expect(anchor.click).not.toHaveBeenCalled();
+  });
+});
+
 describe('formatters', () => {
   it('formats credits as USD', async () => {
     const auth = await fresh();

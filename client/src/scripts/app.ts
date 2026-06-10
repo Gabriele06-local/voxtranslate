@@ -1,13 +1,16 @@
 // VoxTranslate V2 client orchestrator: home/lobby → pre-join (camera + devices)
 // → WebRTC video call with translated subtitles + chat.
 
-import { applyI18n, detectLang, FLAG, setUiLang, t } from './i18n';
+import { applyI18n, detectLang, FLAG, getUiLang, setUiLang, t } from './i18n';
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
 import { ChatManager, type ChatPayload } from './chat';
 import * as auth from './auth';
+import { CompositeRecorder } from './recording/composite-recorder';
+import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
+import type { ParticipantSource } from './recording/types';
 
 // ---- Config ----------------------------------------------------------------
 const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
@@ -117,9 +120,18 @@ let pinnedPeerId: string | null = null;
 let lastSpeakerId: string | null = null;
 let isSharingScreen = false;
 let screenStream: MediaStream | null = null;
-let mediaRecorder: MediaRecorder | null = null;
+// Composite recording (spec 0010): one WebM with every participant tiled +
+// mixed audio. `remoteStreams` is the live source registry the recorder reads
+// from (streams weren't stored anywhere before).
+let recorder: CompositeRecorder | null = null;
 let isRecording = false;
-let recordedChunks: Blob[] = [];
+let recTimerId = 0; // 1s interval driving the REC badge MM:SS label
+const remoteStreams = new Map<string, MediaStream>();
+// Transcript recording (spec 0009): set from room_joined.session_id when the
+// backend persists transcripts; drives the in-call indicator + post-call modal.
+let activeSessionId: string | null = null;
+let transcriptEvents = 0; // speech finals + chat lines seen this call
+let callStartedAt = 0; // ms epoch of room_joined (0 = never actually joined)
 
 const peerNames = new Map<string, { name: string; lang: string; avatar?: string | null }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
@@ -386,6 +398,7 @@ function startCall(): void {
 
   // micOn / camOn carry over from the pre-join toggles.
   setControlState();
+  show(btnRecord, isRecordingSupported()); // Safari etc.: no MediaRecorder → no button
 
   // Self cell — reflect the pre-join mic/camera choice.
   const myAvatar = billing && auth.isLoggedIn() ? auth.getUser()?.avatar_url : null;
@@ -406,7 +419,11 @@ function openSocket(): void {
 
   ws.onopen = () => {
     mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)));
-    mesh.onRemoteStream = (peerId, stream) => attachStream(peerId, stream);
+    mesh.onRemoteStream = (peerId, stream) => {
+      remoteStreams.set(peerId, stream);
+      recorder?.addParticipant(participantSource(peerId, stream));
+      attachStream(peerId, stream);
+    };
     mesh.onPeerRemoved = (peerId) => removeCell(peerId);
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
@@ -443,6 +460,10 @@ function openSocket(): void {
 async function handleServer(msg: any): Promise<void> {
   switch (msg.type) {
     case 'room_joined':
+      // session_id present = the backend records a transcript of this call.
+      activeSessionId = typeof msg.session_id === 'string' ? msg.session_id : null;
+      callStartedAt = Date.now();
+      show($('transcript-indicator'), !!activeSessionId);
       for (const p of msg.peers) {
         peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
@@ -480,6 +501,7 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'chat_message':
       chat?.addMessage(msg as ChatPayload);
+      transcriptEvents++;
       break;
     case 'peer_muted':
       if (msg.kind === 'audio') {
@@ -488,6 +510,7 @@ async function handleServer(msg: any): Promise<void> {
       } else {
         peerCamOff.set(msg.peer_id, msg.muted);
         setCameraOff(msg.peer_id, msg.muted);
+        recorder?.setVideoOff(msg.peer_id, msg.muted);
       }
       updateParticipantsList();
       break;
@@ -507,6 +530,7 @@ async function handleServer(msg: any): Promise<void> {
       showSubtitle(msg.speaker_id, msg.text, true);
       break;
     case 'subtitle_final': {
+      transcriptEvents++;
       const myLang = session?.lang || 'en';
       const text = msg.translations?.[myLang] ?? msg.original;
       showSubtitle(msg.speaker_id, text, false, msg.original);
@@ -686,6 +710,8 @@ function removeCell(id: string): void {
   if (cell) cell.remove();
   peerNames.delete(id);
   peerCamOff.delete(id);
+  remoteStreams.delete(id);
+  recorder?.removeParticipant(id);
   if (pinnedPeerId === id) pinnedPeerId = null;
   if (lastSpeakerId === id) lastSpeakerId = null;
   updateGridCount();
@@ -1003,6 +1029,8 @@ btnCam.addEventListener('click', () => {
   camOn = !camOn;
   mesh?.setVideoEnabled(camOn);
   setCameraOff(myId, !camOn);
+  // While screen-sharing the recorder's self tile shows the screen regardless.
+  if (!isSharingScreen) recorder?.setVideoOff(myId, !camOn);
   ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
   setControlState();
 });
@@ -1083,6 +1111,9 @@ async function startScreenShare(): Promise<void> {
     isSharingScreen = true;
     // Replace video track on all peers with screen track (audio stays from mic)
     mesh.setLocalStream(s);
+    // Recorder self tile follows what peers see.
+    recorder?.updateStream(myId, s);
+    recorder?.setVideoOff(myId, false);
     // Show indicator on self cell
     const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
     if (cell) {
@@ -1111,6 +1142,8 @@ function stopScreenShare(): void {
   }
   // Restore camera stream
   mesh.setLocalStream(localStream);
+  recorder?.updateStream(myId, localStream);
+  recorder?.setVideoOff(myId, !camOn);
   // Remove badge
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
   cell?.querySelector('.screen-share-badge')?.remove();
@@ -1120,49 +1153,65 @@ function stopScreenShare(): void {
 
 btnRecord.addEventListener('click', () => {
   if (isRecording) {
-    stopRecording();
+    void stopRecording();
   } else {
     startRecording();
   }
 });
 
-function startRecording(): void {
-  if (!localStream) return;
-  recordedChunks = [];
-  try {
-    const mimeType = 'video/webm;codecs=vp9,opus';
-    mediaRecorder = new MediaRecorder(localStream, { mimeType });
-  } catch {
-    try {
-      mediaRecorder = new MediaRecorder(localStream, { mimeType: 'video/webm;codecs=vp8,opus' });
-    } catch {
-      mediaRecorder = new MediaRecorder(localStream);
-    }
+// Build a recorder source for one participant. Self is special: the tile shows
+// whatever peers see (screen share wins over camera) and `videoOff` must stay
+// false while sharing even if the camera toggle is off.
+function participantSource(peerId: string, stream: MediaStream | null): ParticipantSource {
+  const isSelf = peerId === myId;
+  return {
+    peerId,
+    name: isSelf ? session?.name || t('namePlaceholder') : peerNames.get(peerId)?.name || 'Guest',
+    stream,
+    videoOff: isSelf ? !camOn && !isSharingScreen : !!peerCamOff.get(peerId),
+  };
+}
+
+/** Current roster for the compositor: self first, then peers in join order. */
+function recorderSources(): ParticipantSource[] {
+  const sources = [participantSource(myId, screenStream ?? localStream)];
+  for (const [peerId] of peerNames) {
+    sources.push(participantSource(peerId, remoteStreams.get(peerId) ?? null));
   }
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) recordedChunks.push(e.data);
-  };
-  mediaRecorder.onstop = () => {
-    if (recordedChunks.length === 0) return;
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `voxtranslate-${session?.room || 'call'}-${Date.now()}.webm`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-  mediaRecorder.start(1000);
+  return sources;
+}
+
+function startRecording(): void {
+  if (recorder || !localStream) return;
+  recorder = new CompositeRecorder({
+    sources: recorderSources(),
+    // Mid-session failure: stop gracefully and save the chunks collected so far.
+    onError: () => void stopRecording(true),
+  });
   isRecording = true;
   showNotif(t('recording'));
+  $('rec-timer').textContent = '00:00';
+  show($('rec-badge'), true);
+  recTimerId = window.setInterval(() => {
+    if (recorder) $('rec-timer').textContent = formatElapsed(Date.now() - recorder.startedAt);
+  }, 1000);
   setControlState();
 }
 
-function stopRecording(): void {
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-  mediaRecorder.stop();
+async function stopRecording(partial = false): Promise<void> {
+  const rec = recorder;
+  if (!rec) return;
+  recorder = null;
   isRecording = false;
+  clearInterval(recTimerId);
+  show($('rec-badge'), false);
   setControlState();
+  showNotif(t('processing'));
+  const blob = await rec.stop();
+  if (blob.size > 0) {
+    auth.downloadBlob(blob, recordingFilename(session?.room || 'call', new Date()));
+  }
+  if (partial) toast(t('recordingPartial'));
 }
 
 btnParticipants.addEventListener('click', () => toggleParticipants());
@@ -1191,13 +1240,30 @@ chatInput.addEventListener('keydown', (e) => {
 
 $('btn-leave').addEventListener('click', leaveCall);
 function leaveCall(): void {
+  // Snapshot transcript state before teardown wipes it (spec 0009); the
+  // post-call download modal opens once we're back on the home screen.
+  const ended =
+    activeSessionId && callStartedAt > 0
+      ? {
+          id: activeSessionId,
+          room: session?.room || '',
+          events: transcriptEvents,
+          durationMs: Date.now() - callStartedAt,
+        }
+      : null;
+  activeSessionId = null;
+  transcriptEvents = 0;
+  callStartedAt = 0;
+  show($('transcript-indicator'), false);
   manualClose = true;
   audioCapture?.stop();
+  // Initiate the recording stop BEFORE tearing down the mesh: the chunks are
+  // already collected, so the async Blob assembly survives the cleanup below.
+  if (isRecording) void stopRecording();
   mesh?.destroy();
   if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (isSharingScreen) stopScreenShare();
-  if (isRecording) stopRecording();
   if (screenStream) { screenStream.getTracks().forEach((t) => t.stop()); screenStream = null; }
   if (ws) {
     ws.close(1000, 'leave');
@@ -1215,6 +1281,7 @@ function leaveCall(): void {
   mesh = null;
   audioCapture = null;
   chat = null;
+  remoteStreams.clear();
   chatPanel.classList.remove('open');
   participantsPanel.classList.remove('open');
   participantsPanel.classList.add('closed');
@@ -1222,6 +1289,7 @@ function leaveCall(): void {
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
   startLobby();
+  if (ended && billing && auth.isLoggedIn()) openPostCallModal(ended);
 }
 
 // ---- Helpers ---------------------------------------------------------------
@@ -1462,14 +1530,21 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   }
 }
 
-function selectTab(which: 'history' | 'usage'): void {
+type LedgerTab = 'history' | 'usage' | 'transcripts';
+
+function selectTab(which: LedgerTab): void {
   $('tab-history').classList.toggle('active', which === 'history');
   $('tab-usage').classList.toggle('active', which === 'usage');
+  $('tab-transcripts').classList.toggle('active', which === 'transcripts');
   void loadLedger(which);
 }
 
-async function loadLedger(which: 'history' | 'usage'): Promise<void> {
+async function loadLedger(which: LedgerTab): Promise<void> {
   ledgerList.innerHTML = '';
+  if (which === 'transcripts') {
+    await renderTranscriptRows();
+    return;
+  }
   let rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
   // "Crediti" shows money in (welcome + purchases); per-call usage lives in the
   // "Utilizzo" tab, so don't repeat each speaking-time deduction here.
@@ -1502,6 +1577,103 @@ async function loadLedger(which: 'history' | 'usage'): Promise<void> {
   }
 }
 
+/** Transcripts tab: one row per recorded call with PDF/JSON download buttons. */
+async function renderTranscriptRows(): Promise<void> {
+  const sessions = await auth.fetchSessions();
+  if (!sessions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ledger-empty';
+    empty.textContent = t('noActivity');
+    ledgerList.appendChild(empty);
+    return;
+  }
+  for (const s of sessions) {
+    const row = document.createElement('div');
+    row.className = 'ledger-row';
+    const desc = document.createElement('span');
+    desc.className = 'ledger-desc';
+    const date = new Date(s.started_at).toLocaleDateString();
+    desc.textContent = `${s.room} · ${date} · ${s.event_count} ${t('eventsLabel')}`;
+    const actions = document.createElement('span');
+    actions.className = 'ledger-actions';
+    for (const format of ['pdf', 'json'] as const) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ledger-dl';
+      btn.textContent = format.toUpperCase();
+      if (s.event_count === 0) {
+        btn.disabled = true;
+        btn.title = t('noTranscriptEvents');
+      }
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const ok = await auth.downloadTranscript(s.id, format, getUiLang());
+        btn.disabled = false;
+        if (!ok) toast(t('downloadFailed'));
+      });
+      actions.appendChild(btn);
+    }
+    row.append(desc, actions);
+    ledgerList.appendChild(row);
+  }
+}
+
+// --- Post-call transcript modal (spec 0009) ---
+const postcallModal = $('postcall-modal');
+let postCallSessionId: string | null = null;
+let postCallEvents = 0;
+
+function openPostCallModal(ended: {
+  id: string;
+  room: string;
+  events: number;
+  durationMs: number;
+}): void {
+  postCallSessionId = ended.id;
+  postCallEvents = ended.events;
+  $('postcall-room').textContent = ended.room;
+  $('postcall-duration').textContent = formatCallDuration(ended.durationMs);
+  $('postcall-events').textContent = String(ended.events);
+  for (const id of ['postcall-pdf', 'postcall-json']) {
+    const btn = $<HTMLButtonElement>(id);
+    btn.disabled = ended.events === 0;
+    btn.title = ended.events === 0 ? t('noTranscriptEvents') : '';
+  }
+  show(postcallModal, true);
+}
+
+function formatCallDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}h ${String(m).padStart(2, '0')}m`
+    : `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+async function downloadFromPostCall(format: 'json' | 'pdf', btn: HTMLButtonElement): Promise<void> {
+  if (!postCallSessionId || btn.disabled) return;
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t('processing');
+  const ok = await auth.downloadTranscript(postCallSessionId, format, getUiLang());
+  btn.textContent = prev;
+  btn.disabled = postCallEvents === 0;
+  if (!ok) toast(t('downloadFailed'));
+}
+
+$('postcall-close').addEventListener('click', () => show(postcallModal, false));
+postcallModal.addEventListener('click', (e) => {
+  if (e.target === postcallModal) show(postcallModal, false);
+});
+$('postcall-pdf').addEventListener('click', (e) =>
+  void downloadFromPostCall('pdf', e.currentTarget as HTMLButtonElement),
+);
+$('postcall-json').addEventListener('click', (e) =>
+  void downloadFromPostCall('json', e.currentTarget as HTMLButtonElement),
+);
+
 $('buy-btn').addEventListener('click', openBuyModal);
 $('buy-close').addEventListener('click', () => show(buyModal, false));
 buyModal.addEventListener('click', (e) => {
@@ -1510,6 +1682,7 @@ buyModal.addEventListener('click', (e) => {
 $('low-banner-buy').addEventListener('click', openBuyModal);
 $('tab-history').addEventListener('click', () => selectTab('history'));
 $('tab-usage').addEventListener('click', () => selectTab('usage'));
+$('tab-transcripts').addEventListener('click', () => selectTab('transcripts'));
 $('exhausted-dismiss').addEventListener('click', () => show(exhaustedModal, false));
 $('exhausted-buy').addEventListener('click', () => {
   show(exhaustedModal, false);
@@ -1579,12 +1752,7 @@ $('export-data').addEventListener('click', async () => {
     return;
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'voxtranslate-data.json';
-  a.click();
-  URL.revokeObjectURL(url);
+  auth.downloadBlob(blob, 'voxtranslate-data.json');
 });
 $('delete-account').addEventListener('click', async () => {
   if (!confirm(t('deleteConfirm'))) return;
@@ -1678,6 +1846,7 @@ $('privacy-open').innerHTML = icon('shield', 16);
 $('report-close').innerHTML = icon('close', 16);
 $('privacy-close').innerHTML = icon('close', 16);
 $('part-close').innerHTML = icon('close', 16);
+$('postcall-close').innerHTML = icon('close', 16);
 
 // ---- Emoji picker ----------------------------------------------------------
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];

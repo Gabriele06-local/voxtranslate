@@ -70,9 +70,13 @@ pub struct PeerInfo {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     /// Sent to a peer right after joining: its own id + the existing peers.
+    /// `session_id` is present iff transcript recording is on for this call
+    /// (the DB is configured), and identifies the downloadable transcript.
     RoomJoined {
         peer_id: String,
         peers: Vec<PeerInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     /// A new peer joined (sent to the others).
     PeerJoined {
@@ -278,6 +282,25 @@ impl DeepgramResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn room_joined_session_id_present_iff_recording() {
+        let off = ServerMessage::RoomJoined {
+            peer_id: "p".into(),
+            peers: vec![],
+            session_id: None,
+        }
+        .to_json();
+        assert!(off.contains("\"type\":\"room_joined\""));
+        assert!(!off.contains("session_id"), "omitted when recording is off");
+        let on = ServerMessage::RoomJoined {
+            peer_id: "p".into(),
+            peers: vec![],
+            session_id: Some("abc-123".into()),
+        }
+        .to_json();
+        assert!(on.contains("\"session_id\":\"abc-123\""));
+    }
 
     #[test]
     fn server_message_type_tags() {

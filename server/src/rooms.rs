@@ -4,6 +4,7 @@
 
 use dashmap::DashMap;
 use tokio::sync::mpsc::UnboundedSender;
+use uuid::Uuid;
 
 use crate::protocol::{Member, PeerInfo, PublicRoom};
 
@@ -32,7 +33,17 @@ pub struct Peer {
 /// A room and its current peers.
 struct Room {
     visibility: Visibility,
+    /// Identity of this room *lifetime* for transcript persistence. A fresh id
+    /// is generated when the room is (re)created after being empty.
+    session_id: Uuid,
     peers: Vec<Peer>,
+}
+
+/// Result of joining a room: the room's call-session id plus the peers that
+/// were already present.
+pub struct Joined {
+    pub session_id: Uuid,
+    pub existing: Vec<PeerInfo>,
 }
 
 /// Manages ephemeral rooms. No persistence — everything lives in memory and is
@@ -48,19 +59,15 @@ impl RoomManager {
     }
 
     /// Add a peer to a room (creating it with `visibility` if new). Returns the
-    /// list of peers that were already present, or `Err(())` if the room is full.
+    /// room's session id + the peers already present, or `Err(())` if full.
     #[allow(clippy::result_unit_err)] // `()` = "room full"; a richer error isn't needed
-    pub fn join(
-        &self,
-        room_id: &str,
-        peer: Peer,
-        visibility: Visibility,
-    ) -> Result<Vec<PeerInfo>, ()> {
+    pub fn join(&self, room_id: &str, peer: Peer, visibility: Visibility) -> Result<Joined, ()> {
         let mut room = self
             .rooms
             .entry(room_id.to_string())
             .or_insert_with(|| Room {
                 visibility,
+                session_id: Uuid::new_v4(),
                 peers: Vec::new(),
             });
         if room.peers.len() >= MAX_PEERS {
@@ -77,16 +84,21 @@ impl RoomManager {
             })
             .collect();
         room.peers.push(peer);
-        Ok(existing)
+        Ok(Joined {
+            session_id: room.session_id,
+            existing,
+        })
     }
 
-    /// Remove a peer by id, dropping the room once empty.
-    pub fn remove(&self, room_id: &str, id: &str) {
+    /// Remove a peer by id, dropping the room once empty. Returns the dropped
+    /// room's session id iff this removal emptied it (the session is over).
+    pub fn remove(&self, room_id: &str, id: &str) -> Option<Uuid> {
         if let Some(mut room) = self.rooms.get_mut(room_id) {
             room.peers.retain(|p| p.id != id);
         }
         self.rooms
-            .remove_if(room_id, |_, room| room.peers.is_empty());
+            .remove_if(room_id, |_, room| room.peers.is_empty())
+            .map(|(_, room)| room.session_id)
     }
 
     /// Send to every peer in the room, pruning dead channels.
@@ -155,11 +167,19 @@ impl RoomManager {
     }
 
     /// Drop peers whose receiver has been dropped, and remove empty rooms.
-    pub fn prune(&self) {
+    /// Returns the session ids of the rooms that were dropped (sessions over).
+    pub fn prune(&self) -> Vec<Uuid> {
+        let mut dropped = Vec::new();
         self.rooms.retain(|_, room| {
             room.peers.retain(|p| !p.tx.is_closed());
-            !room.peers.is_empty()
+            if room.peers.is_empty() {
+                dropped.push(room.session_id);
+                false
+            } else {
+                true
+            }
         });
+        dropped
     }
 }
 
@@ -186,9 +206,12 @@ mod tests {
     fn join_returns_existing_and_caps_at_max() {
         let rm = RoomManager::new();
         let (a, _ra) = peer("a", "it");
-        assert_eq!(rm.join("r", a, Visibility::Public).unwrap().len(), 0);
+        assert_eq!(
+            rm.join("r", a, Visibility::Public).unwrap().existing.len(),
+            0
+        );
         let (b, _rb) = peer("b", "en");
-        let existing = rm.join("r", b, Visibility::Public).unwrap();
+        let existing = rm.join("r", b, Visibility::Public).unwrap().existing;
         assert_eq!(existing.len(), 1);
         assert_eq!(existing[0].id, "a");
         let (c, _rc) = peer("c", "es");
@@ -266,5 +289,37 @@ mod tests {
         drop(rb); // close receiver -> sender is_closed
         rm.prune();
         assert!(rm.public_rooms().is_empty());
+    }
+
+    #[test]
+    fn session_id_stable_within_room_and_fresh_after_empty() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer("a", "it");
+        let s1 = rm.join("r", a, Visibility::Public).unwrap().session_id;
+        let (b, _rb) = peer("b", "en");
+        let s2 = rm.join("r", b, Visibility::Public).unwrap().session_id;
+        assert_eq!(s1, s2, "same room lifetime -> same session id");
+
+        assert!(rm.remove("r", "a").is_none(), "room not yet empty");
+        assert_eq!(rm.remove("r", "b"), Some(s1), "last leave ends the session");
+
+        let (c, _rc) = peer("c", "es");
+        let s3 = rm.join("r", c, Visibility::Public).unwrap().session_id;
+        assert_ne!(s3, s1, "re-created room gets a fresh session id");
+    }
+
+    #[test]
+    fn prune_reports_dropped_sessions() {
+        let rm = RoomManager::new();
+        let (a, ra) = peer("a", "it");
+        let sid = rm.join("r", a, Visibility::Public).unwrap().session_id;
+        let (b, rb) = peer("b", "en");
+        rm.join("r2", b, Visibility::Public).unwrap();
+        std::mem::forget(rb); // keep r2 alive
+
+        drop(ra); // a's receiver closed -> r drops on prune
+        let dropped = rm.prune();
+        assert_eq!(dropped, vec![sid]);
+        assert!(rm.prune().is_empty(), "nothing left to prune");
     }
 }

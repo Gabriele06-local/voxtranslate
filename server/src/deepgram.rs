@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
@@ -17,12 +18,27 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::{HeaderValue, AUTHORIZATION};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use uuid::Uuid;
 
 use crate::config::Config;
 use crate::moderation::{Moderator, Severity};
 use crate::protocol::{DeepgramResponse, ServerMessage};
 use crate::rooms::RoomManager;
+use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use crate::translator::Translator;
+
+/// Identity + context of the speaker behind one speaking session: who they are,
+/// where they are, and which call session their words belong to.
+pub struct SpeakerCtx {
+    pub room: String,
+    pub speaker_id: String,
+    pub speaker_name: String,
+    pub speaker_lang: String,
+    /// The room's call-session id (transcript persistence).
+    pub session_id: Uuid,
+    /// `None` for guests.
+    pub speaker_user_id: Option<Uuid>,
+}
 
 type DgStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type DgSink = SplitSink<DgStream, Message>;
@@ -104,17 +120,22 @@ pub async fn forward_audio(mut audio_rx: UnboundedReceiver<Vec<u8>>, mut sink: D
 /// - interim → `subtitle_interim` (original language, live),
 /// - final → translated into every language present (fan-out), broadcast as
 ///   `subtitle_final` with a `{ lang: text }` map; each client picks its own.
-#[allow(clippy::too_many_arguments)]
 pub async fn process_transcripts(
     mut source: DgSource,
     rooms: Arc<RoomManager>,
     translator: Translator,
     moderator: Arc<Moderator>,
-    room: String,
-    speaker_id: String,
-    speaker_name: String,
-    speaker_lang: String,
+    ctx: SpeakerCtx,
+    transcripts: Option<TranscriptService>,
 ) {
+    let SpeakerCtx {
+        room,
+        speaker_id,
+        speaker_name,
+        speaker_lang,
+        session_id,
+        speaker_user_id,
+    } = ctx;
     while let Some(msg) = source.next().await {
         let text = match msg {
             Ok(Message::Text(t)) => t,
@@ -172,17 +193,34 @@ pub async fn process_transcripts(
 
         // Fan out a translation per distinct language in the room, then broadcast
         // the final subtitle with the full map so every peer picks its language.
+        // `ts` is captured *now* (when the words were spoken), not after the
+        // translation round-trip, so transcript ordering matches reality.
         let rooms = rooms.clone();
         let translator = translator.clone();
+        let transcripts = transcripts.clone();
         let room = room.clone();
         let speaker_id = speaker_id.clone();
         let speaker_name = speaker_name.clone();
         let speaker_lang = speaker_lang.clone();
+        let ts = Utc::now();
         tokio::spawn(async move {
             let target_langs = rooms.get_room_languages(&room, &speaker_id);
             let translations = translator
                 .translate_fanout(&transcript, &speaker_lang, &target_langs)
                 .await;
+            if let Some(svc) = transcripts.as_ref() {
+                svc.record(TranscriptEvent {
+                    session_id,
+                    kind: EventKind::Speech,
+                    speaker_peer_id: speaker_id.clone(),
+                    speaker_user_id,
+                    speaker_name: speaker_name.clone(),
+                    original_text: transcript.clone(),
+                    original_lang: speaker_lang.clone(),
+                    translations: translations.clone(),
+                    ts,
+                });
+            }
             rooms.broadcast(
                 &room,
                 &ServerMessage::SubtitleFinal {

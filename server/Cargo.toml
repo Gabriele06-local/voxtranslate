@@ -20,7 +20,7 @@ dotenvy = "0.15"
 url = "2"
 
 # Auth + billing
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "rust_decimal", "macros", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "rust_decimal", "macros", "migrate", "json"] }
 jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
@@ -28,6 +28,13 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 async-trait = "0.1"
+
+# Transcript PDF export (spec 0009). Exact pins: typst-as-lib tracks typst
+# minor versions closely, so we upgrade all three together, deliberately.
+chrono-tz = "0.10"
+typst = "=0.14.2"
+typst-pdf = "=0.14.2"
+typst-as-lib = "=0.15.5"
 
 [profile.release]
 opt-level = 3

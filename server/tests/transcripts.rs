@@ -1,0 +1,347 @@
+//! Transcript capture + export end-to-end over real HTTP/WebSocket: an authed
+//! user chats in a call, the event is persisted, the session is listed, and the
+//! JSON transcript downloads with the right auth gates (401/403/404).
+//!
+//! Every test is **DB-gated**: it no-ops when `DATABASE_URL` is unset. Locally,
+//! run against the Docker Postgres:
+//! `DATABASE_URL=postgresql://postgres:test@127.0.0.1:55432/vox_test cargo test --test transcripts`.
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::{SinkExt, StreamExt};
+use uuid::Uuid;
+use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
+use voxtranslate_server::billing::{usd, BillingService};
+use voxtranslate_server::config::Config;
+use voxtranslate_server::db::{self, Pool};
+use voxtranslate_server::safety::SafetyService;
+use voxtranslate_server::transcripts::TranscriptService;
+use voxtranslate_server::{app, AppState};
+
+struct Server {
+    addr: SocketAddr,
+    pool: Pool,
+    secret: String,
+}
+
+/// Spawn a billing-mode server with the transcript service wired (unlike
+/// `tests/billing.rs`, which predates transcripts and leaves it `None`).
+async fn setup() -> Option<Server> {
+    let url = std::env::var("DATABASE_URL").ok()?;
+    let pool = db::connect(&url).await.ok()?;
+    db::migrate(&pool).await.ok()?;
+    let secret = "transcripts-secret".to_string();
+    let config = Config::test_with_billing(&url, &secret, 2.0);
+    let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
+    let mut state = AppState::new(config);
+    state.billing = Some(BillingService::new(pool.clone(), min_join));
+    state.safety = Some(SafetyService::new(pool.clone()));
+    state.transcripts = Some(TranscriptService::new(pool.clone()));
+    state.pool = Some(pool.clone());
+    state.verifier = Arc::new(FakeVerifier);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    Some(Server { addr, pool, secret })
+}
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Connect and return the first JSON text frame (keeping the socket open).
+async fn connect_first(addr: SocketAddr, params: &str) -> (serde_json::Value, Ws) {
+    let url = format!("ws://{addr}/ws?{params}");
+    let (mut ws, _) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("ws connect");
+    let frame = loop {
+        match tokio::time::timeout(Duration::from_secs(2), ws.next()).await {
+            Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) => {
+                break serde_json::from_str(t.as_str()).unwrap()
+            }
+            Ok(Some(Ok(_))) => continue,
+            _ => panic!("no frame"),
+        }
+    };
+    (frame, ws)
+}
+
+/// Wait until a frame of the given type arrives on the socket.
+async fn wait_for(ws: &mut Ws, frame_type: &str) -> serde_json::Value {
+    loop {
+        match tokio::time::timeout(Duration::from_secs(3), ws.next()).await {
+            Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) => {
+                let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap();
+                if v["type"] == frame_type {
+                    return v;
+                }
+            }
+            Ok(Some(Ok(_))) => continue,
+            _ => panic!("no {frame_type} frame"),
+        }
+    }
+}
+
+async fn login(srv: &Server, name: &str) -> (Uuid, String) {
+    let identity = GoogleIdentity {
+        google_id: format!("g-{}", Uuid::new_v4()),
+        email: format!("{}@x.com", Uuid::new_v4()),
+        name: name.into(),
+        avatar_url: None,
+    };
+    let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
+        .await
+        .unwrap();
+    let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
+    (user.id, jwt)
+}
+
+#[tokio::test]
+async fn chat_is_captured_listed_and_downloadable_with_auth_gates() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (_uid, jwt) = login(&srv, "Tess").await;
+    let room = format!("tr-{}", Uuid::new_v4().simple());
+
+    // Authed join: room_joined carries the session id (recording is on).
+    // Single-peer room -> chat fan-out has zero target languages -> no Groq.
+    let (frame, mut ws) = connect_first(
+        srv.addr,
+        &format!("room={room}&lang=it&id=tess-peer&token={jwt}"),
+    )
+    .await;
+    assert_eq!(frame["type"], "room_joined");
+    let session_id = frame["session_id"].as_str().expect("session_id present");
+    Uuid::parse_str(session_id).expect("session_id is a UUID");
+
+    // Chat; the broadcast echoes back to the sender once the event is queued
+    // for persistence (record() happens before the broadcast).
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+        serde_json::json!({ "type": "chat", "text": "ciao a tutti" }).to_string(),
+    ))
+    .await
+    .unwrap();
+    let chat = wait_for(&mut ws, "chat_message").await;
+    assert_eq!(chat["original"], "ciao a tutti");
+    drop(ws); // hang up -> participant_left + finalize_session
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+
+    // Poll the listing until the finalize + batch insert land. The listing's
+    // own flush() can persist the event before the disconnect path stamps
+    // `ended_at`, so wait for both.
+    let mut listed = None;
+    for _ in 0..30 {
+        let rows: serde_json::Value = http
+            .get(format!("{base}/api/sessions"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if let Some(row) = rows.as_array().unwrap().iter().find(|r| {
+            r["id"] == session_id
+                && r["event_count"].as_i64() >= Some(1)
+                && r["ended_at"].is_string()
+        }) {
+            listed = Some(row.clone());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let row = listed.expect("session listed, finalized, with the chat event");
+    assert_eq!(row["room"], room.as_str());
+
+    // Download the JSON transcript.
+    let resp = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.json"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "application/json"
+    );
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|v| v.to_str().ok())
+        .expect("content-disposition")
+        .to_string();
+    assert!(
+        cd.starts_with("attachment; filename=\"voxtranslate-"),
+        "{cd}"
+    );
+    assert!(cd.ends_with(".json\""), "{cd}");
+
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("\n  "), "pretty-printed with 2-space indent");
+    let doc: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(doc["session"]["id"], session_id);
+    assert_eq!(doc["session"]["room_name"], room.as_str());
+    assert!(doc["session"]["duration_seconds"].is_number());
+    assert_eq!(doc["session"]["participants"][0]["id"], "tess-peer");
+    assert_eq!(doc["session"]["participants"][0]["language"], "it");
+    assert_eq!(doc["events"][0]["type"], "chat");
+    assert_eq!(doc["events"][0]["original"], "ciao a tutti");
+    assert_eq!(doc["events"][0]["lang"], "it");
+    assert!(doc["events"][0]["translations"].is_object());
+    assert!(doc["exported_at"].is_string());
+
+    // Download the PDF transcript (timezone localized).
+    let pdf = http
+        .get(format!(
+            "{base}/api/sessions/{session_id}/transcript.pdf?tz=Europe/Rome"
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(pdf.status(), 200);
+    assert_eq!(
+        pdf.headers().get("content-type").unwrap(),
+        "application/pdf"
+    );
+    let cd = pdf
+        .headers()
+        .get("content-disposition")
+        .and_then(|v| v.to_str().ok())
+        .unwrap()
+        .to_string();
+    assert!(cd.ends_with(".pdf\""), "{cd}");
+    let bytes = pdf.bytes().await.unwrap();
+    assert!(bytes.starts_with(b"%PDF-"), "PDF magic bytes");
+
+    // A bogus timezone falls back to UTC — still a 200.
+    let bogus_tz = http
+        .get(format!(
+            "{base}/api/sessions/{session_id}/transcript.pdf?tz=Not/AZone"
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bogus_tz.status(), 200);
+
+    // Rendering is rate-limited per user: 5/min, and we've spent 2 already.
+    let mut last = 0;
+    for _ in 0..5 {
+        last = http
+            .get(format!("{base}/api/sessions/{session_id}/transcript.pdf"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16();
+        if last == 429 {
+            break;
+        }
+    }
+    assert_eq!(last, 429, "rapid PDF requests throttle");
+
+    // Gates: a non-participant gets 403, unknown session 404, no token 401.
+    let (_eve, eve_jwt) = login(&srv, "Eve").await;
+    let forbidden = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.json"))
+        .bearer_auth(&eve_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+
+    let missing = http
+        .get(format!(
+            "{base}/api/sessions/{}/transcript.json",
+            Uuid::new_v4()
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
+    let unauth = http
+        .get(format!("{base}/api/sessions/{session_id}/transcript.json"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauth.status(), 401);
+    let unauth_list = http
+        .get(format!("{base}/api/sessions"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauth_list.status(), 401);
+
+    // Eve never sees Tess's session in her own listing.
+    let eve_rows: serde_json::Value = http
+        .get(format!("{base}/api/sessions"))
+        .bearer_auth(&eve_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(eve_rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["id"] != session_id));
+}
+
+#[tokio::test]
+async fn guest_only_session_is_purged_on_end() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let room = format!("gr-{}", Uuid::new_v4().simple());
+
+    // A guest in a private room still gets a session id (recording is on)...
+    let (frame, mut ws) = connect_first(srv.addr, &format!("room={room}&lang=en&id=g1")).await;
+    assert_eq!(frame["type"], "room_joined");
+    let session_id = Uuid::parse_str(frame["session_id"].as_str().unwrap()).unwrap();
+
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+        serde_json::json!({ "type": "chat", "text": "off the record" }).to_string(),
+    ))
+    .await
+    .unwrap();
+    wait_for(&mut ws, "chat_message").await;
+    drop(ws); // last leave -> finalize -> guest-only purge
+
+    // ...but the whole session (and its events) is purged on end.
+    let mut sessions = -1i64;
+    for _ in 0..30 {
+        sessions = sqlx::query_scalar("SELECT count(*) FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+        if sessions == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(sessions, 0, "guest-only session purged");
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM transcript_events WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(events, 0, "no orphaned guest events");
+}

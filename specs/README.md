@@ -41,6 +41,8 @@ Each spec follows the same skeleton:
 | [0006](0006-trust-safety-gdpr/spec.md) | Trust & safety + GDPR (consent, moderation, report/block, legal) | ✅ Shipped | 2026-06-10 | `4b84f87`, `b166d9b` |
 | [0007](0007-backoffice-directus/spec.md) | Backoffice: admin actions + managed content + Directus studio | ✅ Shipped | 2026-06-10 | `ce06868`, `c0a80af`, `41305ec` |
 | [0008](0008-managed-content-i18n/spec.md) | Managed content & i18n: DB-overridable strings, legal pages, 404 | ✅ Shipped | 2026-06-10 | `151980c`, `90492d1`, `c10a2df` |
+| [0009](0009-session-transcripts/spec.md) | Session transcript download (PDF + JSON) | In progress | — | — |
+| [0010](0010-composite-recording/spec.md) | Composite video recording (client-side) | In progress | — | — |
 
 ## System at a glance
 

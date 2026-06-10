@@ -24,6 +24,8 @@ COPY src ./src
 # `sqlx::migrate!("./migrations")` embeds the migration files at COMPILE TIME,
 # so the directory must exist during the build (not just at runtime).
 COPY migrations ./migrations
+# `include_bytes!` in src/pdf.rs embeds the PDF fonts at COMPILE TIME too.
+COPY assets ./assets
 # Touch main so cargo rebuilds with the real sources.
 RUN touch src/main.rs && cargo build --release
 

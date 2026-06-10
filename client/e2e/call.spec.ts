@@ -16,6 +16,12 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
   // Both see 2 cells; remote video is flowing.
   expect(await a.page.$$eval('.video-cell', (e) => e.length)).toBe(2);
   expect(await b.page.$$eval('.video-cell', (e) => e.length)).toBe(2);
+  // Guest backend (no DB) sends no session_id → transcript indicator stays hidden.
+  expect(
+    await a.page.evaluate(() =>
+      document.getElementById('transcript-indicator')!.classList.contains('hidden'),
+    ),
+  ).toBeTruthy();
   expect(
     await a.page.evaluate(() => {
       const v = document.querySelector('.video-cell:not(.self) video') as HTMLVideoElement;
@@ -73,6 +79,12 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
   await a.page.waitForSelector('#home:not(.hidden)');
   await sleep(900);
   expect(await b.page.$$eval('.video-cell', (e) => e.length)).toBe(1);
+  // ...and guests never get the post-call transcript modal.
+  expect(
+    await a.page.evaluate(() =>
+      document.getElementById('postcall-modal')!.classList.contains('hidden'),
+    ),
+  ).toBeTruthy();
 
   await closePage(a);
   await closePage(b);

@@ -58,6 +58,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'raised hand',
     pinTip: 'Pin video', unpinTip: 'Unpin video', viewGrid: 'Grid view', viewSpeaker: 'Speaker view',
     screenShareTip: 'Share screen', stopShare: 'Stop sharing', recordingTip: 'Record', recording: 'Recording…',
+    transcripts: 'Transcripts', postCallTitle: 'Call transcript', downloadPdf: 'Download PDF', downloadJson: 'Download JSON',
+    durationLabel: 'Duration', eventsLabel: 'events', transcriptRecording: 'Transcript is being recorded',
+    noTranscriptEvents: 'No transcript events in this call', downloadFailed: 'Download failed — try again', processing: 'Processing…',
+    recordingPartial: 'Recording failed — partial file saved',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -101,6 +105,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'ha alzato la mano',
     pinTip: 'Fissa video', unpinTip: 'Rimuovi fissaggio', viewGrid: 'Griglia', viewSpeaker: 'Relatore',
     screenShareTip: 'Condividi schermo', stopShare: 'Ferma condivisione', recordingTip: 'Registra', recording: 'Registrazione…',
+    transcripts: 'Trascrizioni', postCallTitle: 'Trascrizione della chiamata', downloadPdf: 'Scarica PDF', downloadJson: 'Scarica JSON',
+    durationLabel: 'Durata', eventsLabel: 'eventi', transcriptRecording: 'Trascrizione in corso di registrazione',
+    noTranscriptEvents: 'Nessun evento trascritto in questa chiamata', downloadFailed: 'Download non riuscito — riprova', processing: 'Elaborazione…',
+    recordingPartial: 'Registrazione interrotta — file parziale salvato',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -144,6 +152,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'levantó la mano',
     pinTip: 'Fijar video', unpinTip: 'Desfijar video', viewGrid: 'Cuadrícula', viewSpeaker: 'Orador',
     screenShareTip: 'Compartir pantalla', stopShare: 'Dejar de compartir', recordingTip: 'Grabar', recording: 'Grabando…',
+    transcripts: 'Transcripciones', postCallTitle: 'Transcripción de la llamada', downloadPdf: 'Descargar PDF', downloadJson: 'Descargar JSON',
+    durationLabel: 'Duración', eventsLabel: 'eventos', transcriptRecording: 'La transcripción se está grabando',
+    noTranscriptEvents: 'Sin eventos de transcripción en esta llamada', downloadFailed: 'Error al descargar — inténtalo de nuevo', processing: 'Procesando…',
+    recordingPartial: 'La grabación falló — archivo parcial guardado',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -187,6 +199,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'a levé la main',
     pinTip: 'Épingler', unpinTip: 'Détacher', viewGrid: 'Grille', viewSpeaker: 'Intervenant',
     screenShareTip: 'Partager écran', stopShare: 'Arrêter partage', recordingTip: 'Enregistrer', recording: 'Enregistrement…',
+    transcripts: 'Transcriptions', postCallTitle: 'Transcription de l’appel', downloadPdf: 'Télécharger le PDF', downloadJson: 'Télécharger le JSON',
+    durationLabel: 'Durée', eventsLabel: 'événements', transcriptRecording: 'La transcription est en cours d’enregistrement',
+    noTranscriptEvents: 'Aucun événement transcrit dans cet appel', downloadFailed: 'Échec du téléchargement — réessayez', processing: 'Traitement…',
+    recordingPartial: 'Échec de l’enregistrement — fichier partiel sauvegardé',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -230,6 +246,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'hat die Hand gehoben',
     pinTip: 'Video anheften', unpinTip: 'Loslösen', viewGrid: 'Raster', viewSpeaker: 'Sprecher',
     screenShareTip: 'Bildschirm teilen', stopShare: 'Teilen beenden', recordingTip: 'Aufnehmen', recording: 'Aufnahme…',
+    transcripts: 'Transkripte', postCallTitle: 'Anruf-Transkript', downloadPdf: 'PDF herunterladen', downloadJson: 'JSON herunterladen',
+    durationLabel: 'Dauer', eventsLabel: 'Ereignisse', transcriptRecording: 'Transkript wird aufgezeichnet',
+    noTranscriptEvents: 'Keine Transkript-Ereignisse in diesem Anruf', downloadFailed: 'Download fehlgeschlagen — bitte erneut versuchen', processing: 'Verarbeitung…',
+    recordingPartial: 'Aufnahme fehlgeschlagen — Teildatei gespeichert',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -273,6 +293,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'levantou a mão',
     pinTip: 'Fixar vídeo', unpinTip: 'Desafixar', viewGrid: 'Grade', viewSpeaker: 'Orador',
     screenShareTip: 'Compartilhar tela', stopShare: 'Parar compartilhamento', recordingTip: 'Gravar', recording: 'Gravando…',
+    transcripts: 'Transcrições', postCallTitle: 'Transcrição da chamada', downloadPdf: 'Baixar PDF', downloadJson: 'Baixar JSON',
+    durationLabel: 'Duração', eventsLabel: 'eventos', transcriptRecording: 'A transcrição está sendo gravada',
+    noTranscriptEvents: 'Nenhum evento de transcrição nesta chamada', downloadFailed: 'Falha no download — tente novamente', processing: 'Processando…',
+    recordingPartial: 'Falha na gravação — arquivo parcial salvo',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -316,6 +340,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'が手を上げました',
     pinTip: 'ピン固定', unpinTip: 'ピン解除', viewGrid: 'グリッド', viewSpeaker: 'スピーカー',
     screenShareTip: '画面共有', stopShare: '共有停止', recordingTip: '録画', recording: '録画中…',
+    transcripts: '文字起こし', postCallTitle: '通話の文字起こし', downloadPdf: 'PDFをダウンロード', downloadJson: 'JSONをダウンロード',
+    durationLabel: '通話時間', eventsLabel: '件', transcriptRecording: '文字起こしを記録中',
+    noTranscriptEvents: 'この通話に文字起こしはありません', downloadFailed: 'ダウンロードに失敗しました — もう一度お試しください', processing: '処理中…',
+    recordingPartial: '録画に失敗しました — 部分ファイルを保存しました',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -359,6 +387,10 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: '举了手',
     pinTip: '固定视频', unpinTip: '取消固定', viewGrid: '网格', viewSpeaker: '演讲者',
     screenShareTip: '共享屏幕', stopShare: '停止共享', recordingTip: '录制', recording: '录制中…',
+    transcripts: '转录', postCallTitle: '通话转录', downloadPdf: '下载 PDF', downloadJson: '下载 JSON',
+    durationLabel: '时长', eventsLabel: '条', transcriptRecording: '正在记录转录',
+    noTranscriptEvents: '此通话没有转录记录', downloadFailed: '下载失败 — 请重试', processing: '处理中…',
+    recordingPartial: '录制失败 — 已保存部分文件',
   },
 };
 
