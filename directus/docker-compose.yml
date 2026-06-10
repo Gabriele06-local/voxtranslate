@@ -1,0 +1,41 @@
+# Directus backoffice for VoxTranslate — local dev + a reference for the Railway
+# service. Directus connects to the SAME Supabase Postgres as the app and creates
+# its own `directus_*` tables there on first boot. The app's tables (users,
+# reports, i18n_*, legal_*, blocklist_terms, admin_audit, …) are added as
+# collections from the Studio (Settings → Data Model → they appear as existing
+# tables you can enable).
+#
+#   cp .env.example .env   # fill in the values, then:
+#   docker compose up
+#
+# Open http://localhost:8055 and sign in with ADMIN_EMAIL / ADMIN_PASSWORD.
+
+services:
+  directus:
+    image: directus/directus:11
+    ports:
+      - '8055:8055'
+    environment:
+      # Generate these two: `openssl rand -hex 32` each.
+      KEY: ${DIRECTUS_KEY}
+      SECRET: ${DIRECTUS_SECRET}
+
+      ADMIN_EMAIL: ${DIRECTUS_ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${DIRECTUS_ADMIN_PASSWORD}
+
+      # Supabase IPv4 **Session pooler** connection string (same as the app's
+      # DATABASE_URL). The pooler requires SSL.
+      DB_CLIENT: pg
+      DB_CONNECTION_STRING: ${DATABASE_URL}
+      DB_SSL__REJECT_UNAUTHORIZED: 'false'
+
+      PUBLIC_URL: ${DIRECTUS_PUBLIC_URL:-http://localhost:8055}
+      WEBSOCKETS_ENABLED: 'true'
+
+      # Used by the admin Flows to call the VoxTranslate server (see README).
+      # ADMIN_API_SECRET must match the value set on the voxtranslate-server.
+      VOX_API_URL: ${VOX_API_URL}
+      ADMIN_API_SECRET: ${ADMIN_API_SECRET}
+      # Let Flow operations read these env vars via {{$env.NAME}} (so the webhook
+      # can send the secret header without hardcoding it in the flow).
+      FLOWS_ENV_ALLOW_LIST: ADMIN_API_SECRET,VOX_API_URL
