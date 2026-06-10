@@ -9,6 +9,7 @@ import { AudioCapture } from './audio-capture';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import * as auth from './auth';
+import { openSessionScreen } from './session-screen';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -1637,7 +1638,9 @@ async function loadLedger(which: LedgerTab): Promise<void> {
   }
   let rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
   // "Crediti" shows money in (welcome + purchases); per-call usage lives in the
-  // "Utilizzo" tab, so don't repeat each speaking-time deduction here.
+  // "Utilizzo" tab, so don't repeat each speaking-time deduction here. AI
+  // feature charges (kind ai_report/ai_sentiment/ai_email/ai_suggestions) DO
+  // show here — they render via the description/kind fallback below.
   if (which === 'history') rows = rows.filter((r) => r.kind !== 'usage');
   if (!rows.length) {
     const empty = document.createElement('div');
@@ -1686,6 +1689,22 @@ async function renderTranscriptRows(): Promise<void> {
     desc.textContent = `${s.room} · ${date} · ${s.event_count} ${t('eventsLabel')}`;
     const actions = document.createElement('span');
     actions.className = 'ledger-actions';
+    // Full session detail screen (specs 0011+) — closes the modal first.
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'ledger-dl';
+    open.textContent = t('openBtn');
+    open.addEventListener('click', () => {
+      show(buyModal, false);
+      openSessionScreen({
+        id: s.id,
+        room: s.room,
+        started_at: s.started_at,
+        ended_at: s.ended_at,
+        event_count: s.event_count,
+      });
+    });
+    actions.appendChild(open);
     for (const format of ['pdf', 'json'] as const) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -1719,6 +1738,19 @@ function openPostCallModal(ended: {
   events: number;
   durationMs: number;
 }): void {
+  // Authenticated users get the full session detail screen (specs 0011+);
+  // the modal below stays as the minimal fallback path.
+  if (auth.isLoggedIn()) {
+    const now = Date.now();
+    openSessionScreen({
+      id: ended.id,
+      room: ended.room,
+      started_at: new Date(now - ended.durationMs).toISOString(),
+      ended_at: new Date(now).toISOString(),
+      event_count: ended.events,
+    });
+    return;
+  }
   postCallSessionId = ended.id;
   postCallEvents = ended.events;
   $('postcall-room').textContent = ended.room;

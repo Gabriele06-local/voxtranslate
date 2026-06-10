@@ -63,6 +63,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'No transcript events in this call', downloadFailed: 'Download failed — try again', processing: 'Processing…',
     recordingPartial: 'Recording failed — partial file saved',
     closeTip: 'Close', diceTip: 'Random code',
+    sessionDetails: 'Session details', downloads: 'Downloads', aiTools: 'AI tools',
+    transcriptLabel: 'Transcript', openBtn: 'Open', loadFailed: 'Could not load — please try again',
   },
   it: {
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
@@ -111,6 +113,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'Nessun evento trascritto in questa chiamata', downloadFailed: 'Download non riuscito — riprova', processing: 'Elaborazione…',
     recordingPartial: 'Registrazione interrotta — file parziale salvato',
     closeTip: 'Chiudi', diceTip: 'Codice casuale',
+    sessionDetails: 'Dettagli sessione', downloads: 'Download', aiTools: 'Strumenti AI',
+    transcriptLabel: 'Trascrizione', openBtn: 'Apri', loadFailed: 'Caricamento non riuscito — riprova',
   },
   es: {
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
@@ -159,6 +163,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'Sin eventos de transcripción en esta llamada', downloadFailed: 'Error al descargar — inténtalo de nuevo', processing: 'Procesando…',
     recordingPartial: 'La grabación falló — archivo parcial guardado',
     closeTip: 'Cerrar', diceTip: 'Código aleatorio',
+    sessionDetails: 'Detalles de la sesión', downloads: 'Descargas', aiTools: 'Herramientas de IA',
+    transcriptLabel: 'Transcripción', openBtn: 'Abrir', loadFailed: 'No se pudo cargar — inténtalo de nuevo',
   },
   fr: {
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
@@ -207,6 +213,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'Aucun événement transcrit dans cet appel', downloadFailed: 'Échec du téléchargement — réessayez', processing: 'Traitement…',
     recordingPartial: 'Échec de l’enregistrement — fichier partiel sauvegardé',
     closeTip: 'Fermer', diceTip: 'Code aléatoire',
+    sessionDetails: 'Détails de la session', downloads: 'Téléchargements', aiTools: 'Outils IA',
+    transcriptLabel: 'Transcription', openBtn: 'Ouvrir', loadFailed: 'Chargement impossible — réessayez',
   },
   de: {
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
@@ -255,6 +263,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'Keine Transkript-Ereignisse in diesem Anruf', downloadFailed: 'Download fehlgeschlagen — bitte erneut versuchen', processing: 'Verarbeitung…',
     recordingPartial: 'Aufnahme fehlgeschlagen — Teildatei gespeichert',
     closeTip: 'Schließen', diceTip: 'Zufälliger Code',
+    sessionDetails: 'Sitzungsdetails', downloads: 'Downloads', aiTools: 'KI-Tools',
+    transcriptLabel: 'Transkript', openBtn: 'Öffnen', loadFailed: 'Laden fehlgeschlagen — bitte erneut versuchen',
   },
   pt: {
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
@@ -303,6 +313,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'Nenhum evento de transcrição nesta chamada', downloadFailed: 'Falha no download — tente novamente', processing: 'Processando…',
     recordingPartial: 'Falha na gravação — arquivo parcial salvo',
     closeTip: 'Fechar', diceTip: 'Código aleatório',
+    sessionDetails: 'Detalhes da sessão', downloads: 'Downloads', aiTools: 'Ferramentas de IA',
+    transcriptLabel: 'Transcrição', openBtn: 'Abrir', loadFailed: 'Falha ao carregar — tente novamente',
   },
   ja: {
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
@@ -351,6 +363,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: 'この通話に文字起こしはありません', downloadFailed: 'ダウンロードに失敗しました — もう一度お試しください', processing: '処理中…',
     recordingPartial: '録画に失敗しました — 部分ファイルを保存しました',
     closeTip: '閉じる', diceTip: 'ランダムコード',
+    sessionDetails: 'セッションの詳細', downloads: 'ダウンロード', aiTools: 'AIツール',
+    transcriptLabel: '文字起こし', openBtn: '開く', loadFailed: '読み込みに失敗しました — もう一度お試しください',
   },
   zh: {
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
@@ -399,6 +413,8 @@ export const I18N: Record<string, Dict> = {
     noTranscriptEvents: '此通话没有转录记录', downloadFailed: '下载失败 — 请重试', processing: '处理中…',
     recordingPartial: '录制失败 — 已保存部分文件',
     closeTip: '关闭', diceTip: '随机代码',
+    sessionDetails: '会话详情', downloads: '下载', aiTools: 'AI 工具',
+    transcriptLabel: '转录', openBtn: '打开', loadFailed: '加载失败 — 请重试',
   },
 };
 

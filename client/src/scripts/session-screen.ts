@@ -1,0 +1,155 @@
+// Session detail screen (specs 0011+): full-screen view opened after a call
+// ends and from the buy-modal Transcripts tab. Hosts the download buttons, the
+// AI tool sections (report/sentiment/email — filled in by later phases), and a
+// read-only transcript viewer. Auth-only: guests never reach this screen
+// (transcript APIs are auth-gated server-side).
+
+import * as auth from './auth';
+import { fetchTranscript, type TranscriptDoc } from './api';
+import { getUiLang, t } from './i18n';
+
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+/** What the screen needs to paint its header before the transcript loads. */
+export interface SessionRef {
+  id: string;
+  room: string;
+  started_at: string;
+  ended_at?: string | null;
+  event_count: number;
+}
+
+let current: SessionRef | null = null;
+let onCloseCb: (() => void) | null = null;
+
+/** The session currently shown (null when the screen is closed). */
+export function currentSession(): SessionRef | null {
+  return current;
+}
+
+export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void } = {}): void {
+  current = ref;
+  onCloseCb = opts.onClose ?? null;
+  renderHeader(ref);
+  $('home').classList.add('hidden');
+  $('session').classList.remove('hidden');
+  void renderTranscript(ref);
+  $('session-back').focus();
+}
+
+export function closeSessionScreen(): void {
+  current = null;
+  $('session').classList.add('hidden');
+  $('home').classList.remove('hidden');
+  const cb = onCloseCb;
+  onCloseCb = null;
+  cb?.();
+}
+
+function renderHeader(ref: SessionRef): void {
+  $('session-room').textContent = ref.room;
+  $('session-date').textContent = new Date(ref.started_at).toLocaleString();
+  const ms = ref.ended_at
+    ? new Date(ref.ended_at).getTime() - new Date(ref.started_at).getTime()
+    : 0;
+  $('session-duration').textContent = formatDuration(ms);
+  $('session-events').textContent = String(ref.event_count);
+  $('session-participants').textContent = '';
+  for (const id of ['session-dl-pdf', 'session-dl-json']) {
+    const btn = $<HTMLButtonElement>(id);
+    btn.disabled = ref.event_count === 0;
+    btn.title = ref.event_count === 0 ? t('noTranscriptEvents') : '';
+  }
+}
+
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}h ${String(m).padStart(2, '0')}m`
+    : `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+async function renderTranscript(ref: SessionRef): Promise<void> {
+  const list = $('session-transcript');
+  const status = $('session-transcript-status');
+  list.innerHTML = '';
+  if (ref.event_count === 0) {
+    status.textContent = t('noTranscriptEvents');
+    return;
+  }
+  status.textContent = t('processing');
+  const doc = await fetchTranscript(ref.id);
+  if (current?.id !== ref.id) return; // navigated away while loading
+  if (!doc) {
+    status.textContent = t('loadFailed');
+    return;
+  }
+  status.textContent = '';
+  // The export is authoritative — refresh duration + participants from it.
+  $('session-duration').textContent = formatDuration(doc.session.duration_seconds * 1000);
+  $('session-participants').textContent = doc.session.participants
+    .map((p) => p.name)
+    .join(', ');
+  renderEvents(list, doc);
+}
+
+function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {
+  const ui = getUiLang();
+  for (const ev of doc.events) {
+    const row = document.createElement('div');
+    row.className = ev.type === 'chat' ? 'tr-event tr-chat' : 'tr-event';
+    const time = document.createElement('span');
+    time.className = 'tr-time mono';
+    time.textContent = new Date(ev.ts).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const body = document.createElement('div');
+    body.className = 'tr-body';
+    const name = document.createElement('span');
+    name.className = 'tr-speaker';
+    name.textContent = ev.type === 'chat' ? `${ev.speaker_name} 💬` : ev.speaker_name;
+    const text = document.createElement('span');
+    text.className = 'tr-text';
+    // Show the viewer's language when a translation exists; original below it.
+    const translated = ev.lang !== ui ? ev.translations?.[ui] : undefined;
+    text.textContent = translated || ev.original;
+    body.append(name, text);
+    if (translated) {
+      const orig = document.createElement('span');
+      orig.className = 'tr-orig';
+      orig.textContent = ev.original;
+      body.appendChild(orig);
+    }
+    row.append(time, body);
+    list.appendChild(row);
+  }
+}
+
+// ---- One-time wiring (DOM is ready when modules execute) --------------------
+
+$('session-back').addEventListener('click', closeSessionScreen);
+
+for (const format of ['pdf', 'json'] as const) {
+  const btn = $<HTMLButtonElement>(`session-dl-${format}`);
+  btn.addEventListener('click', async () => {
+    if (!current || btn.disabled) return;
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = t('processing');
+    const ok = await auth.downloadTranscript(current.id, format, getUiLang());
+    btn.textContent = prev;
+    btn.disabled = (current?.event_count ?? 0) === 0;
+    if (!ok) {
+      const status = $('session-transcript-status');
+      status.textContent = t('downloadFailed');
+      setTimeout(() => {
+        if (status.textContent === t('downloadFailed')) status.textContent = '';
+      }, 3500);
+    }
+  });
+}

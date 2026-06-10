@@ -95,6 +95,46 @@ const LANGS = [
       </div>
     </section>
 
+    <!-- ===================== SESSION DETAIL (auth only) ===================== -->
+    <section id="session" class="screen hidden">
+      <div class="session-body">
+        <header class="session-header">
+          <button id="session-back" class="btn-ghost" data-i18n="back"></button>
+          <h1 class="card-title" data-i18n="sessionDetails"></h1>
+          <span class="room-tag"><span id="session-room" class="mono"></span></span>
+        </header>
+        <p class="session-meta">
+          <span id="session-date"></span> · <span data-i18n="durationLabel"></span>:
+          <span id="session-duration"></span> · <span id="session-events"></span>
+          <span data-i18n="eventsLabel"></span>
+        </p>
+        <p id="session-participants" class="session-participants"></p>
+
+        <div class="card">
+          <span class="card-title" data-i18n="downloads"></span>
+          <div id="session-downloads" class="session-downloads">
+            <button id="session-dl-pdf" class="btn-ghost" data-i18n="downloadPdf"></button>
+            <button id="session-dl-json" class="btn-ghost" data-i18n="downloadJson"></button>
+          </div>
+        </div>
+
+        <!-- AI tools (report / sentiment / email) — slots filled by later phases. -->
+        <div id="session-ai" class="card hidden">
+          <span class="card-title" data-i18n="aiTools"></span>
+          <div id="ai-report-slot"></div>
+          <div id="ai-sentiment-slot"></div>
+          <div id="ai-email-slot"></div>
+        </div>
+
+        <div class="card">
+          <span class="card-title" data-i18n="transcriptLabel"></span>
+          <div id="session-bookmarks" class="session-bookmarks" hidden></div>
+          <p id="session-transcript-status" class="status-line" role="status"></p>
+          <div id="session-transcript" class="session-transcript"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ===================== PRE-JOIN ===================== -->
     <section id="prejoin" class="screen hidden">
       <div class="prejoin-card card">
@@ -380,6 +420,34 @@ const LANGS = [
     .rooms-list :global(.room-item-members) { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .rooms-list :global(.chip) { font-size: 0.78rem; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
     .rooms-list :global(.lobby-empty) { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
+
+    /* ---------- Session detail ---------- */
+    .session-body {
+      width: 100%; max-width: 720px; margin: 0 auto; padding: 24px 16px 32px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .session-header { display: flex; align-items: center; gap: 12px; }
+    .session-header .card-title { font-size: 1rem; flex: 1; }
+    .session-meta { margin: 0; color: var(--muted); font-size: 0.88rem; }
+    .session-participants { margin: 0; color: var(--muted); font-size: 0.82rem; min-height: 1em; }
+    .session-downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .session-downloads .btn-ghost { min-height: 44px; }
+    .session-transcript {
+      display: flex; flex-direction: column; gap: 4px; margin-top: 10px;
+      max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    /* Transcript rows are created in JS — target via :global(). */
+    .session-transcript :global(.tr-event) {
+      display: flex; gap: 12px; padding: 8px 6px; border-bottom: 1px solid var(--border);
+      font-size: 0.88rem; line-height: 1.45;
+    }
+    .session-transcript :global(.tr-event:last-child) { border-bottom: none; }
+    .session-transcript :global(.tr-time) { flex: none; color: var(--muted); font-size: 0.76rem; padding-top: 2px; }
+    .session-transcript :global(.tr-body) { display: flex; flex-direction: column; min-width: 0; }
+    .session-transcript :global(.tr-speaker) { font-weight: 700; color: var(--accent); font-size: 0.8rem; }
+    .session-transcript :global(.tr-text) { color: var(--text); overflow-wrap: anywhere; }
+    .session-transcript :global(.tr-orig) { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+    .session-transcript :global(.tr-chat .tr-text) { font-style: italic; }
 
     /* ---------- Pre-join ---------- */
     #prejoin { align-items: center; justify-content: center; padding: 20px; }
