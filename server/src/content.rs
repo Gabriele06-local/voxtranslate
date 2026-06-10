@@ -7,13 +7,25 @@
 use std::collections::HashMap;
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{header::CACHE_CONTROL, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 
 use crate::db::Pool;
 use crate::AppState;
+
+/// Managed content changes rarely and is edited in the backoffice, so a short
+/// cache window (browser + any CDN) avoids refetching the full string map on
+/// every page load while staying fresh within a minute (plus background
+/// revalidation). Applied to successful responses only.
+fn with_cache(mut resp: Response) -> Response {
+    resp.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=60, stale-while-revalidate=300"),
+    );
+    resp
+}
 
 /// `GET /api/content/i18n` — every DB-managed string override, grouped by
 /// language: `{ "en": { "key": "value", … }, "it": { … } }`. Empty when nothing
@@ -40,7 +52,7 @@ pub async fn get_i18n(State(state): State<AppState>) -> Response {
     for (lang, key, value) in rows {
         out.entry(lang).or_default().insert(key, value);
     }
-    Json(out).into_response()
+    with_cache(Json(out).into_response())
 }
 
 #[derive(Deserialize)]
@@ -75,13 +87,15 @@ pub async fn get_legal(
     .await
     .unwrap_or(None);
     match row {
-        Some((slug, version, title, body)) => Json(serde_json::json!({
-            "slug": slug,
-            "version": version,
-            "title": title,
-            "body": body,
-        }))
-        .into_response(),
+        Some((slug, version, title, body)) => with_cache(
+            Json(serde_json::json!({
+                "slug": slug,
+                "version": version,
+                "title": title,
+                "body": body,
+            }))
+            .into_response(),
+        ),
         None => (StatusCode::NOT_FOUND, "not found").into_response(),
     }
 }

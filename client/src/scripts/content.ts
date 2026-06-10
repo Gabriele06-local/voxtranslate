@@ -11,7 +11,10 @@ async function getJson(url: string, timeoutMs = 3000): Promise<unknown | null> {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+    // Default caching: honour the server's short Cache-Control so we don't
+    // refetch the full string map on every boot (the server sets a ~60s TTL
+    // with background revalidation).
+    const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
     if (!res.ok) return null;
     return await res.json();

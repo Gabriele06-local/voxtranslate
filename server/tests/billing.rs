@@ -1126,14 +1126,18 @@ mod content_api {
         .await
         .unwrap();
 
-        let i18n: serde_json::Value = http
+        let i18n_resp = http
             .get(format!("{base}/api/content/i18n"))
             .send()
             .await
-            .unwrap()
-            .json()
-            .await
             .unwrap();
+        // Short cache window so the client doesn't refetch the map every boot.
+        assert!(i18n_resp
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("max-age")));
+        let i18n: serde_json::Value = i18n_resp.json().await.unwrap();
         assert_eq!(i18n["en"][&key], "Hi there");
 
         // A managed legal page.
