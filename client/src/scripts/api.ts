@@ -308,6 +308,68 @@ export async function generateReport(
   }
 }
 
+// ---- Sentiment analysis (REST under /api/sessions/{id}/sentiment) -----------
+
+/** The aggregated analysis the server stores per session. */
+export interface SentimentResult {
+  overall: { score: number; mood: string };
+  timeline: { t: number; score: number }[];
+  speakers: { name: string; talk_pct: number; score: number | null; mood: string | null }[];
+  key_moments: { t: number; label: string; score: number }[];
+  window_secs: number;
+}
+
+export interface AiSentiment {
+  /** Absent when the server delivered an unsaved analysis (insert race). */
+  id?: string;
+  result: SentimentResult;
+  model: string;
+  cost: number;
+  created_at?: string;
+  /** True when this came from the per-session cache (nobody was charged). */
+  cached: boolean;
+  /** New balance after the charge; absent on GET and cache hits. */
+  balance?: number;
+}
+
+/** Generation outcome: exactly one of the three fields is meaningful. */
+export interface AiSentimentResult {
+  sentiment: AiSentiment | null;
+  insufficient: InsufficientCredits | null;
+  error: string;
+}
+
+const sentimentUrl = (sessionId: string) =>
+  `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/sentiment`;
+
+/** Cached analysis for the session; null when none / 403 / network error. */
+export async function fetchSentiment(sessionId: string): Promise<AiSentiment | null> {
+  try {
+    const res = await fetch(sentimentUrl(sessionId), { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as AiSentiment;
+  } catch {
+    return null;
+  }
+}
+
+/** Run (and pay for) the analysis — or get the cached one back for free. */
+export async function generateSentiment(sessionId: string): Promise<AiSentimentResult> {
+  try {
+    const res = await fetch(sentimentUrl(sessionId), {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (res.status === 402) {
+      return { sentiment: null, insufficient: await parseInsufficient(res), error: '' };
+    }
+    if (!res.ok) return { sentiment: null, insufficient: null, error: await res.text() };
+    return { sentiment: (await res.json()) as AiSentiment, insufficient: null, error: '' };
+  } catch {
+    return { sentiment: null, insufficient: null, error: '' };
+  }
+}
+
 // ---- Shared error shape ------------------------------------------------------
 
 /** The 402 body every credit-charged AI endpoint returns on insufficient funds. */

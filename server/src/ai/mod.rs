@@ -3,6 +3,7 @@
 //! map-reduce condenser for transcripts too long for one model call.
 
 pub mod report;
+pub mod sentiment;
 
 use crate::config::AiConfig;
 use crate::groq::{ChatRequest, Groq};

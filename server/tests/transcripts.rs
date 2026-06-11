@@ -858,6 +858,160 @@ async fn ai_report_validation_billing_and_persistence() {
     assert_eq!(kept, 2, "regenerate appends, never overwrites");
 }
 
+/// Sentiment analysis (spec 0015): auth gates, the 402 pre-check, the Groq
+/// no-charge failure path, and the UNIQUE(session_id) cache contract — once a
+/// result exists, every later POST (from any participant) returns it for free.
+#[tokio::test]
+async fn sentiment_cache_billing_and_gates() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (tess, tess_jwt) = login(&srv, "Tess").await; // $2.00 each
+    let (bob, bob_jwt) = login(&srv, "Bob").await;
+    let room = format!("sn-{}", Uuid::new_v4().simple());
+    let session_id = Uuid::new_v4();
+
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, &room).await.unwrap();
+    svc.participant_joined(session_id, "tess-peer", Some(tess), "Tess", "it")
+        .await
+        .unwrap();
+    svc.participant_joined(session_id, "bob-peer", Some(bob), "Bob", "en")
+        .await
+        .unwrap();
+    svc.record(TranscriptEvent {
+        session_id,
+        kind: EventKind::Speech,
+        speaker_peer_id: "tess-peer".into(),
+        speaker_user_id: Some(tess),
+        speaker_name: "Tess".into(),
+        original_text: "I am thrilled with the launch numbers!".into(),
+        original_lang: "en".into(),
+        translations: HashMap::new(),
+        ts: chrono::Utc::now(),
+    });
+    svc.flush().await;
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+    let url = format!("{base}/api/sessions/{session_id}/sentiment");
+
+    // Gates: no token 401, stranger 403, unknown session 404, nothing yet 404.
+    assert_eq!(http.get(&url).send().await.unwrap().status(), 401);
+    let (_eve, eve_jwt) = login(&srv, "Eve").await;
+    let forbidden = http.get(&url).bearer_auth(&eve_jwt).send().await.unwrap();
+    assert_eq!(forbidden.status(), 403);
+    let unknown = http
+        .get(format!("{base}/api/sessions/{}/sentiment", Uuid::new_v4()))
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404);
+    let none_yet = http.get(&url).bearer_auth(&tess_jwt).send().await.unwrap();
+    assert_eq!(none_yet.status(), 404, "no analysis yet");
+
+    // 402 pre-check: cost = base 0.05 + 2 × 0.01 + minutes × 0.002 > 0.001.
+    sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
+        .bind(tess)
+        .bind(usd(0.001))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let broke = http.post(&url).bearer_auth(&tess_jwt).send().await.unwrap();
+    assert_eq!(broke.status(), 402);
+    let body: serde_json::Value = broke.json().await.unwrap();
+    assert_eq!(body["error"], "insufficient_credits");
+    assert_eq!(body["feature"], "ai_sentiment");
+    assert!(body["required"].as_f64().unwrap() >= 0.07, "{body}");
+
+    // Groq-failure path: funds restored, analysis dies at Groq (dummy key)
+    // -> 502, balance untouched, no ledger row.
+    sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
+        .bind(tess)
+        .bind(usd(2.0))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let failed = http.post(&url).bearer_auth(&tess_jwt).send().await.unwrap();
+    assert_eq!(failed.status(), 502);
+    assert!(failed.text().await.unwrap().contains("not charged"));
+    let balance: rust_decimal::Decimal =
+        sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+            .bind(tess)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, usd(2.0), "Groq failure never charges");
+
+    // Cache contract: store a result (as a successful run would), then every
+    // POST — including another participant's — returns it without charging.
+    let result = serde_json::json!({
+        "overall": { "score": 0.6, "mood": "positive" },
+        "timeline": [ { "t": 0, "score": 0.6 } ],
+        "speakers": [
+            { "name": "Tess", "talk_pct": 100.0, "score": 0.6, "mood": "positive" },
+            { "name": "Bob", "talk_pct": 0.0, "score": null, "mood": null }
+        ],
+        "key_moments": [],
+        "window_secs": 120,
+    });
+    let saved = voxtranslate_server::ai::sentiment::save_sentiment(
+        &srv.pool,
+        session_id,
+        tess,
+        &result,
+        "model-x",
+        usd(0.072),
+    )
+    .await
+    .unwrap();
+    assert!(saved.is_some(), "first insert wins");
+    let raced = voxtranslate_server::ai::sentiment::save_sentiment(
+        &srv.pool,
+        session_id,
+        bob,
+        &result,
+        "model-x",
+        usd(0.072),
+    )
+    .await
+    .unwrap();
+    assert!(raced.is_none(), "UNIQUE(session_id) rejects a second row");
+
+    for jwt in [&tess_jwt, &bob_jwt] {
+        let hit = http.post(&url).bearer_auth(jwt).send().await.unwrap();
+        assert_eq!(hit.status(), 200, "cache hit is 200, not 201");
+        let v: serde_json::Value = hit.json().await.unwrap();
+        assert_eq!(v["cached"], true);
+        assert_eq!(v["result"]["overall"]["mood"], "positive");
+        assert_eq!(v["model"], "model-x");
+        assert!(v["cost"].is_number(), "cost is f64 in JSON: {v}");
+        assert!(v.get("balance").is_none(), "no charge -> no balance echo");
+    }
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM credit_transactions WHERE kind = 'ai_sentiment'",
+    )
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(charged, 0, "cache hits and failures never write ledger rows");
+
+    // GET mirrors the cached POST.
+    let got: serde_json::Value = http
+        .get(&url)
+        .bearer_auth(&bob_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(got["result"]["timeline"][0]["score"], 0.6);
+    assert_eq!(got["cached"], true);
+}
+
 #[tokio::test]
 async fn guest_only_session_is_purged_on_end() {
     let Some(srv) = setup().await else {

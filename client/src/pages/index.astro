@@ -557,6 +557,43 @@ const LANGS = [
     #session-ai :global(.ai-report-actions .btn-ghost) { min-height: 44px; }
     #session-ai :global(.ai-report-meta) { font-size: 0.76rem; color: var(--muted); margin-left: auto; }
 
+    /* ---------- Sentiment (spec 0015; DOM created in JS) ---------- */
+    #session-ai :global(.ai-sentiment-view) { display: flex; flex-direction: column; gap: 12px; }
+    #session-ai :global(.ai-overall) { display: flex; align-items: center; gap: 10px; }
+    #session-ai :global(.ai-mood-emoji) { font-size: 1.6rem; line-height: 1; }
+    #session-ai :global(.ai-mood-label) { font-weight: 700; font-size: 0.95rem; }
+    #session-ai :global(.ai-mood-score) { font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #session-ai :global(.ai-timeline) {
+      display: block; width: 100%; height: 120px;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    }
+    #session-ai :global(.ai-speakers) {
+      display: grid; gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    }
+    #session-ai :global(.ai-speaker-card) {
+      display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    }
+    #session-ai :global(.ai-speaker-name) { font-weight: 700; font-size: 0.85rem; overflow-wrap: anywhere; }
+    #session-ai :global(.ai-speaker-detail) { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #session-ai :global(.ai-subhead) { font-weight: 700; font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
+    #session-ai :global(.ai-moments) { display: flex; flex-direction: column; gap: 6px; }
+    #session-ai :global(.ai-moment) {
+      display: flex; align-items: center; gap: 10px; min-height: 44px;
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--surface); color: var(--text); cursor: pointer;
+      text-align: left; font: inherit; font-size: 0.85rem;
+    }
+    #session-ai :global(.ai-moment:hover) { border-color: var(--accent); }
+    #session-ai :global(.ai-moment-time) { flex: none; color: var(--muted); font-size: 0.78rem; }
+    #session-ai :global(.ai-moment-label) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    #session-ai :global(.ai-moment-score) { flex: none; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    #session-ai :global(.ai-moment-score.pos) { color: var(--accent); }
+    #session-ai :global(.ai-moment-score.neg) { color: var(--danger); }
+    /* Key-moment jump target flash in the transcript viewer. */
+    .session-transcript :global(.tr-flash) { background: var(--accent-soft, rgba(59, 130, 246, 0.18)); transition: background 0.4s; }
+
     /* ---------- Pre-join ---------- */
     #prejoin { align-items: center; justify-content: center; padding: 20px; }
     .prejoin-card { width: 100%; max-width: 460px; }

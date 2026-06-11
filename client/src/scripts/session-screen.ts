@@ -8,6 +8,7 @@ import * as auth from './auth';
 import { fetchTranscript, type TranscriptDoc } from './api';
 import { getUiLang, t } from './i18n';
 import { initReportSlot } from './report';
+import { initSentimentSlot, updateSentimentContext } from './sentiment';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -35,6 +36,7 @@ export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void 
   $('home').classList.add('hidden');
   $('session').classList.remove('hidden');
   initReportSlot(ref);
+  initSentimentSlot(ref);
   void renderTranscript(ref);
   $('session-back').focus();
 }
@@ -96,6 +98,15 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   $('session-participants').textContent = doc.session.participants
     .map((p) => p.name)
     .join(', ');
+  // Sentiment cost preview needs the participant count; the chart wants
+  // bookmark offsets (seconds from session start).
+  const startMs = new Date(doc.session.started_at).getTime();
+  updateSentimentContext(
+    ref.id,
+    doc.session.participants.length,
+    doc.session.duration_seconds,
+    (doc.bookmarks ?? []).map((bm) => Math.max(0, (new Date(bm.ts).getTime() - startMs) / 1000)),
+  );
   renderBookmarks(doc);
   renderEvents(list, doc);
 }
@@ -140,6 +151,8 @@ function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {
   for (const ev of doc.events) {
     const row = document.createElement('div');
     row.className = ev.type === 'chat' ? 'tr-event tr-chat' : 'tr-event';
+    // Epoch ms, so sentiment key moments can jump to the closest row.
+    row.dataset.ts = String(new Date(ev.ts).getTime());
     const time = document.createElement('span');
     time.className = 'tr-time mono';
     time.textContent = new Date(ev.ts).toLocaleTimeString([], {

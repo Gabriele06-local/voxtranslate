@@ -20,6 +20,7 @@ use rust_decimal::Decimal;
 use chrono::{DateTime, Utc};
 
 use crate::ai::report as ai_report;
+use crate::ai::sentiment as ai_sentiment;
 use crate::billing::{usd, BillingError};
 use crate::glossary::{import_csv, normalize_entries, NewEntry, RoomGlossary};
 use crate::middleware::AuthUser;
@@ -1110,6 +1111,176 @@ pub async fn report_latest(
         Ok(None) => (StatusCode::NOT_FOUND, "no report yet").into_response(),
         Err(e) => {
             tracing::error!("report load failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// ---- Sentiment analysis (spec 0015) -----------------------------------------
+
+fn sentiment_json(row: &ai_sentiment::SentimentRow, cached: bool) -> serde_json::Value {
+    let mut v = serde_json::to_value(row).unwrap_or_default();
+    // rust_decimal serializes as a string; the client wants a number.
+    v["cost"] = serde_json::json!(row.cost.to_f64().unwrap_or(0.0));
+    v["cached"] = serde_json::json!(cached);
+    v
+}
+
+/// `POST /api/sessions/{id}/sentiment` — analyze once, then cache: the
+/// UNIQUE(session_id) row is the contract, so any later POST (from any
+/// participant) returns the stored result without charging anyone.
+pub async fn sentiment_generate(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
+        state.transcripts.as_ref(),
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return service_unavailable();
+    };
+    let ai = &cfg.ai;
+
+    // Barrier so an analysis requested right after leaving sees every event.
+    svc.flush().await;
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+
+    // Cache hit: already analyzed — return it, charge nothing.
+    match ai_sentiment::get_sentiment(pool, session_id).await {
+        Ok(Some(row)) => return Json(sentiment_json(&row, true)).into_response(),
+        Ok(None) => {}
+        Err(e) => {
+            tracing::error!("sentiment load failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        // Purged between the access check and here (guest-only finalize race).
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if export.events.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "session has no transcript to analyze",
+        )
+            .into_response();
+    }
+
+    let cost = ai_sentiment::sentiment_cost(
+        ai,
+        export.session.participants.len(),
+        export.session.duration_seconds,
+    );
+
+    // Advisory pre-check: fail fast before burning the Groq calls.
+    // The atomic deduct below remains the real gate.
+    match billing.get_balance(user.user_id).await {
+        Ok(b) if b < cost => return insufficient_credits("ai_sentiment", cost, b),
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("balance check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let (result, model) = match ai_sentiment::analyze(&state.groq, ai, &export).await {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::error!("sentiment analysis failed: {e}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                "sentiment analysis failed — you were not charged",
+            )
+                .into_response();
+        }
+    };
+
+    let balance = match billing
+        .deduct_feature(
+            user.user_id,
+            Some(session_id),
+            "ai_sentiment",
+            cost,
+            &format!("Sentiment analysis — room {}", export.session.room_name),
+            serde_json::json!({ "model": model }),
+        )
+        .await
+    {
+        Ok(b) => Some(b),
+        // Charging after delivery would make 402-then-retry a free path, so
+        // a genuine InsufficientFunds at the gate withholds the result.
+        Err(BillingError::InsufficientFunds) => {
+            let available = billing
+                .get_balance(user.user_id)
+                .await
+                .unwrap_or(Decimal::ZERO);
+            return insufficient_credits("ai_sentiment", cost, available);
+        }
+        // Any other failure is ours, not the user's: deliver free and log.
+        Err(e) => {
+            tracing::error!("ai_sentiment deduction failed AFTER analysis — delivering free: {e}");
+            None
+        }
+    };
+
+    match ai_sentiment::save_sentiment(pool, session_id, user.user_id, &result, &model, cost).await
+    {
+        Ok(Some(row)) => {
+            let mut v = sentiment_json(&row, false);
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+        // Lost the UNIQUE race or the insert failed — we already charged, so
+        // deliver what we computed rather than a confusing error.
+        other => {
+            if let Err(e) = other {
+                tracing::error!("sentiment insert failed after charge: {e}");
+            }
+            let mut v = serde_json::json!({
+                "result": result,
+                "model": model,
+                "cost": cost.to_f64().unwrap_or(0.0),
+                "cached": false,
+            });
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+    }
+}
+
+/// `GET /api/sessions/{id}/sentiment` — the cached analysis. Any participant
+/// can read it (404 when nobody has run it yet).
+pub async fn sentiment_latest(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match ai_sentiment::get_sentiment(pool, session_id).await {
+        Ok(Some(row)) => Json(sentiment_json(&row, true)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no sentiment analysis yet").into_response(),
+        Err(e) => {
+            tracing::error!("sentiment load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }

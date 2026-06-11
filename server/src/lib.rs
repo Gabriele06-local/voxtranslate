@@ -194,6 +194,10 @@ pub fn app(state: AppState) -> Router {
             get(api::report_latest).post(api::report_generate),
         )
         .route(
+            "/api/sessions/{id}/sentiment",
+            get(api::sentiment_latest).post(api::sentiment_generate),
+        )
+        .route(
             "/api/sessions/{id}/bookmarks",
             get(api::bookmarks_list).post(api::bookmark_add),
         )
