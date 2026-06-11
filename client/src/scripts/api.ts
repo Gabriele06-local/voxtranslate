@@ -172,6 +172,7 @@ const glossaryUrl = (room: string) => `${HTTP_BASE}/api/rooms/${encodeURICompone
 export async function fetchGlossary(room: string): Promise<Glossary | null> {
   try {
     const res = await fetch(glossaryUrl(room), { headers: authHeaders() });
+    if (res.status === 404) return { name: null, entries: [], max_entries: 200 };
     if (!res.ok) return null;
     return (await res.json()) as Glossary;
   } catch {
