@@ -244,6 +244,70 @@ export async function fetchAiPricing(): Promise<AiPricing | null> {
   }
 }
 
+// ---- AI report (REST under /api/sessions/{id}/report) -----------------------
+
+export interface AiReport {
+  /** Absent when the server delivered an unsaved report (insert failed). */
+  id?: string;
+  format: string;
+  lang: string;
+  guidelines?: string | null;
+  markdown: string;
+  model: string;
+  cost: number;
+  created_at?: string;
+  /** New balance after the charge; absent on GET and on free delivery. */
+  balance?: number;
+}
+
+/** Generation outcome: exactly one of the three fields is meaningful. */
+export interface AiReportResult {
+  report: AiReport | null;
+  /** The standard 402 body when credits ran short. */
+  insufficient: InsufficientCredits | null;
+  /** Server error text; empty on network failure (caller shows a generic message). */
+  error: string;
+}
+
+const reportUrl = (sessionId: string) =>
+  `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/report`;
+
+/** Latest stored report for the session; null when none / 403 / network error. */
+export async function fetchLatestReport(sessionId: string): Promise<AiReport | null> {
+  try {
+    const res = await fetch(reportUrl(sessionId), { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as AiReport;
+  } catch {
+    return null;
+  }
+}
+
+/** Generate (and charge for) a new AI report. Empty guidelines are omitted. */
+export async function generateReport(
+  sessionId: string,
+  opts: { format: string; lang: string; guidelines: string },
+): Promise<AiReportResult> {
+  try {
+    const res = await fetch(reportUrl(sessionId), {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: opts.format,
+        lang: opts.lang,
+        guidelines: opts.guidelines.trim() || null,
+      }),
+    });
+    if (res.status === 402) {
+      return { report: null, insufficient: await parseInsufficient(res), error: '' };
+    }
+    if (!res.ok) return { report: null, insufficient: null, error: await res.text() };
+    return { report: (await res.json()) as AiReport, insufficient: null, error: '' };
+  } catch {
+    return { report: null, insufficient: null, error: '' };
+  }
+}
+
 // ---- Shared error shape ------------------------------------------------------
 
 /** The 402 body every credit-charged AI endpoint returns on insufficient funds. */

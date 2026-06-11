@@ -7,6 +7,7 @@
 import * as auth from './auth';
 import { fetchTranscript, type TranscriptDoc } from './api';
 import { getUiLang, t } from './i18n';
+import { initReportSlot } from './report';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -33,6 +34,7 @@ export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void 
   renderHeader(ref);
   $('home').classList.add('hidden');
   $('session').classList.remove('hidden');
+  initReportSlot(ref);
   void renderTranscript(ref);
   $('session-back').focus();
 }

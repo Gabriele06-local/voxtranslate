@@ -516,6 +516,47 @@ const LANGS = [
     .session-transcript :global(.tr-orig) { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
     .session-transcript :global(.tr-chat .tr-text) { font-style: italic; }
 
+    /* ---------- AI tools (report — spec 0014; DOM created in JS) ---------- */
+    #session-ai :global(.ai-section) { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    #session-ai :global(.ai-section-head) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #session-ai :global(.ai-section-title) { font-weight: 700; font-size: 0.92rem; }
+    #session-ai :global(.ai-cost) { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #session-ai :global(.ai-report-form) { display: flex; flex-direction: column; gap: 10px; }
+    #session-ai :global(.ai-form-row) { display: flex; gap: 12px; flex-wrap: wrap; }
+    #session-ai :global(.ai-field) { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+    #session-ai :global(.ai-field-label) { font-size: 0.78rem; color: var(--muted); }
+    #session-ai :global(.ai-field select) {
+      min-height: 44px; padding: 0 10px; border-radius: 8px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    }
+    #session-ai :global(.ai-guidelines) {
+      width: 100%; resize: vertical; min-height: 56px; padding: 10px; border-radius: 8px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      font: inherit; font-size: 0.88rem;
+    }
+    #session-ai :global(.ai-generate) { align-self: flex-start; min-height: 44px; }
+    #session-ai :global(.ai-generate:disabled) { opacity: 0.55; cursor: not-allowed; }
+    #session-ai :global(.ai-report-view) { display: flex; flex-direction: column; gap: 10px; }
+    #session-ai :global(.ai-report-md) {
+      font-size: 0.9rem; line-height: 1.55; color: var(--text);
+      max-height: 56vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+      background: var(--surface);
+    }
+    #session-ai :global(.ai-report-md h3) { margin: 12px 0 6px; font-size: 0.95rem; color: var(--accent); }
+    #session-ai :global(.ai-report-md h3:first-child) { margin-top: 0; }
+    #session-ai :global(.ai-report-md h4) { margin: 10px 0 4px; font-size: 0.88rem; }
+    #session-ai :global(.ai-report-md p) { margin: 6px 0; }
+    #session-ai :global(.ai-report-md ul), #session-ai :global(.ai-report-md ol) { margin: 6px 0; padding-left: 22px; }
+    #session-ai :global(.ai-report-md li) { margin: 3px 0; }
+    #session-ai :global(.ai-report-md code) {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84em;
+      background: var(--surface-2); border-radius: 4px; padding: 1px 5px;
+    }
+    #session-ai :global(.ai-report-actions) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    #session-ai :global(.ai-report-actions .btn-ghost) { min-height: 44px; }
+    #session-ai :global(.ai-report-meta) { font-size: 0.76rem; color: var(--muted); margin-left: auto; }
+
     /* ---------- Pre-join ---------- */
     #prejoin { align-items: center; justify-content: center; padding: 20px; }
     .prejoin-card { width: 100%; max-width: 460px; }

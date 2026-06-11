@@ -627,6 +627,237 @@ async fn bookmarks_crud_gates_and_export() {
     assert_eq!(left, 0, "bookmarks cascade with the session");
 }
 
+/// AI session report (spec 0014): request validation, auth gates, the
+/// empty-session 422, the 402 pre-check (balance untouched, no ledger row),
+/// no-charge-on-Groq-failure (the test config's Groq key is a dummy, so the
+/// real POST path dies at generation), and persistence/latest-wins via GET.
+#[tokio::test]
+async fn ai_report_validation_billing_and_persistence() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (uid, jwt) = login(&srv, "Tess").await; // $2.00
+    let room = format!("rp-{}", Uuid::new_v4().simple());
+    let session_id = Uuid::new_v4();
+
+    // Seed a session with one speech event (something to report on).
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, &room).await.unwrap();
+    svc.participant_joined(session_id, "tess-peer", Some(uid), "Tess", "it")
+        .await
+        .unwrap();
+    svc.record(TranscriptEvent {
+        session_id,
+        kind: EventKind::Speech,
+        speaker_peer_id: "tess-peer".into(),
+        speaker_user_id: Some(uid),
+        speaker_name: "Tess".into(),
+        original_text: "We agreed to ship on Friday.".into(),
+        original_lang: "en".into(),
+        translations: HashMap::from([("it".to_string(), "Venerdì si spedisce.".to_string())]),
+        ts: chrono::Utc::now(),
+    });
+    svc.flush().await;
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+    let report_url = format!("{base}/api/sessions/{session_id}/report");
+
+    // Gates: no token 401, stranger 403, unknown session 404, nothing yet 404.
+    let unauth = http.get(&report_url).send().await.unwrap();
+    assert_eq!(unauth.status(), 401);
+    let (_eve, eve_jwt) = login(&srv, "Eve").await;
+    let forbidden = http
+        .get(&report_url)
+        .bearer_auth(&eve_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+    let unknown = http
+        .get(format!("{base}/api/sessions/{}/report", Uuid::new_v4()))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404);
+    let none_yet = http
+        .get(&report_url)
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(none_yet.status(), 404, "no report generated yet");
+
+    // Validation 400s: bad format, oversized guidelines, garbage lang.
+    for bad in [
+        serde_json::json!({ "format": "haiku" }),
+        serde_json::json!({ "guidelines": "x".repeat(2001) }),
+        serde_json::json!({ "lang": "p?q" }),
+    ] {
+        let resp = http
+            .post(&report_url)
+            .bearer_auth(&jwt)
+            .json(&bad)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400, "{bad}");
+    }
+
+    // An event-less session has nothing to report on -> 422.
+    let empty_session = Uuid::new_v4();
+    svc.session_started(empty_session, &format!("re-{room}"))
+        .await
+        .unwrap();
+    svc.participant_joined(empty_session, "tess-peer", Some(uid), "Tess", "it")
+        .await
+        .unwrap();
+    let empty = http
+        .post(format!("{base}/api/sessions/{empty_session}/report"))
+        .bearer_auth(&jwt)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty.status(), 422);
+
+    // 402 pre-check: drain the balance below the report cost (base 0.05).
+    sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
+        .bind(uid)
+        .bind(usd(0.001))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let broke = http
+        .post(&report_url)
+        .bearer_auth(&jwt)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(broke.status(), 402);
+    let body: serde_json::Value = broke.json().await.unwrap();
+    assert_eq!(body["error"], "insufficient_credits");
+    assert_eq!(body["feature"], "ai_report");
+    assert!(body["required"].as_f64().unwrap() >= 0.05);
+    assert!(body["available"].as_f64().unwrap() < 0.01);
+
+    let balance_of = |uid: Uuid| {
+        let pool = srv.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, rust_decimal::Decimal>(
+                "SELECT balance FROM users WHERE id = $1",
+            )
+            .bind(uid)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    assert_eq!(balance_of(uid).await, usd(0.001), "402 never charges");
+
+    // Groq-failure path: with funds restored, the POST reaches generation,
+    // which fails (dummy key) -> 502 and the balance must be untouched.
+    sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
+        .bind(uid)
+        .bind(usd(2.0))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let failed = http
+        .post(&report_url)
+        .bearer_auth(&jwt)
+        .json(&serde_json::json!({
+            "format": "structured",
+            "lang": "it",
+            "guidelines": "focus on decisions"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(failed.status(), 502);
+    assert!(failed.text().await.unwrap().contains("not charged"));
+    assert_eq!(balance_of(uid).await, usd(2.0), "Groq failure never charges");
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM credit_transactions WHERE user_id = $1 AND kind = 'ai_report'",
+    )
+    .bind(uid)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(charged, 0, "no ai_report ledger rows on any failure path");
+
+    // Persistence: store a report row directly (as a successful generation
+    // would) and read it back through GET — cost must come out as a JSON
+    // number, not rust_decimal's string serialization.
+    voxtranslate_server::ai::report::save_report(
+        &srv.pool,
+        session_id,
+        uid,
+        "structured",
+        "it",
+        Some("focus on decisions"),
+        "## Executive Summary\n\nShip on Friday.",
+        "model-x",
+        usd(0.052),
+    )
+    .await
+    .unwrap();
+    let got = http
+        .get(&report_url)
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(got.status(), 200);
+    let report: serde_json::Value = got.json().await.unwrap();
+    assert_eq!(report["format"], "structured");
+    assert_eq!(report["lang"], "it");
+    assert_eq!(report["guidelines"], "focus on decisions");
+    assert_eq!(report["markdown"], "## Executive Summary\n\nShip on Friday.");
+    assert_eq!(report["model"], "model-x");
+    assert!(report["cost"].is_number(), "cost is f64 in JSON: {report}");
+    assert!((report["cost"].as_f64().unwrap() - 0.052).abs() < 1e-9);
+    assert!(report["created_at"].is_string());
+
+    // Regenerate keeps history; GET returns the newest row.
+    voxtranslate_server::ai::report::save_report(
+        &srv.pool,
+        session_id,
+        uid,
+        "freeform",
+        "en",
+        None,
+        "A second take.",
+        "model-x",
+        usd(0.052),
+    )
+    .await
+    .unwrap();
+    let latest: serde_json::Value = http
+        .get(&report_url)
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(latest["markdown"], "A second take.");
+    assert_eq!(latest["format"], "freeform");
+    assert!(latest["guidelines"].is_null());
+    let kept: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM session_reports WHERE session_id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(kept, 2, "regenerate appends, never overwrites");
+}
+
 #[tokio::test]
 async fn guest_only_session_is_purged_on_end() {
     let Some(srv) = setup().await else {

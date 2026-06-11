@@ -203,7 +203,7 @@ fn translation_prompt(source: &str, target: &str, terms: &[(String, String)]) ->
 
 /// Map a short language code to a human-readable name for the prompt. Unknown
 /// codes pass through unchanged so the model still gets a usable hint.
-fn lang_name(code: &str) -> &str {
+pub fn lang_name(code: &str) -> &str {
     match code {
         "it" => "Italian",
         "en" => "English",

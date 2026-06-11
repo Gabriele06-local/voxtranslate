@@ -17,6 +17,8 @@ export default defineConfig({
         // mixer / recorder need real canvas + audio APIs (covered manually).
         'src/scripts/recording/layout.ts',
         'src/scripts/recording/utils.ts',
+        // AI report: only the pure markdown/cost helpers — the slot UI needs a DOM.
+        'src/scripts/report-md.ts',
       ],
       reporter: ['text', 'json-summary'],
       reportsDirectory: './coverage-unit',

@@ -19,7 +19,8 @@ use rust_decimal::Decimal;
 
 use chrono::{DateTime, Utc};
 
-use crate::billing::usd;
+use crate::ai::report as ai_report;
+use crate::billing::{usd, BillingError};
 use crate::glossary::{import_csv, normalize_entries, NewEntry, RoomGlossary};
 use crate::middleware::AuthUser;
 use crate::protocol::ServerMessage;
@@ -878,6 +879,237 @@ pub async fn glossary_import(
         }
         Err(e) => {
             tracing::error!("glossary import save failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// ---- AI session report (spec 0014) ------------------------------------------
+
+#[derive(Deserialize, Default)]
+pub struct AiReportRequest {
+    /// `structured` (default) | `freeform`.
+    pub format: Option<String>,
+    /// Report language; default = the requester's own participant language.
+    pub lang: Option<String>,
+    /// Free-text steering for the model, ≤ 2000 chars.
+    pub guidelines: Option<String>,
+}
+
+/// A [`ReportRow`](ai_report::ReportRow) as the client sees it: `cost`
+/// converted from Decimal (which rust_decimal serializes as a JSON *string*)
+/// to a plain number, matching every other money field we expose.
+fn report_json(row: &ai_report::ReportRow) -> serde_json::Value {
+    let mut v = serde_json::to_value(row).unwrap_or_default();
+    v["cost"] = serde_json::json!(row.cost.to_f64().unwrap_or(0.0));
+    v
+}
+
+/// `POST /api/sessions/{id}/report` — generate an AI report (charged).
+///
+/// Failure-mode policy, user-favorable throughout:
+/// * Groq fails → 502, nothing charged.
+/// * Balance dropped below cost between pre-check and deduct → 402, report
+///   withheld (delivering would make 402-then-regenerate a free path).
+/// * Deduct fails for any *other* reason (DB hiccup) after generation →
+///   deliver the report FREE and log loudly — never charge-or-lose paid AI
+///   output over our own infra error.
+/// * Persisting the row fails after a successful charge → still return the
+///   markdown (the user paid for it); it just won't show up in GET later.
+pub async fn report_generate(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<AiReportRequest>,
+) -> Response {
+    let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
+        state.transcripts.as_ref(),
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return service_unavailable();
+    };
+    let ai = &cfg.ai;
+
+    let format = match body.format.as_deref() {
+        None => "structured",
+        Some(f @ ("structured" | "freeform")) => f,
+        Some(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "format must be structured or freeform",
+            )
+                .into_response()
+        }
+    };
+    let guidelines = match body.guidelines.as_deref().map(str::trim) {
+        Some(g) if g.chars().count() > 2000 => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "guidelines too long (max 2000 chars)",
+            )
+                .into_response()
+        }
+        Some(g) if !g.is_empty() => Some(g.to_string()),
+        _ => None,
+    };
+
+    // Barrier so a report requested right after leaving sees the final events.
+    svc.flush().await;
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+
+    // Report language: explicit param > requester's participant lang > en.
+    let lang = match body.lang.as_deref().map(str::trim) {
+        Some(l) if !l.is_empty() => {
+            if l.len() > 8 || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                return (StatusCode::BAD_REQUEST, "invalid lang").into_response();
+            }
+            l.to_string()
+        }
+        _ => svc
+            .participant_lang(session_id, user.user_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "en".to_string()),
+    };
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        // Purged between the access check and here (guest-only finalize race).
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if export.events.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "session has no transcript to report on",
+        )
+            .into_response();
+    }
+
+    let cost = ai_report::report_cost(ai, export.session.duration_seconds);
+
+    // Advisory pre-check: fail fast before burning an expensive Groq call.
+    // The atomic deduct below remains the real gate.
+    match billing.get_balance(user.user_id).await {
+        Ok(b) if b < cost => return insufficient_credits("ai_report", cost, b),
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("balance check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let (markdown, model) = match ai_report::generate_report(
+        &state.groq,
+        ai,
+        &export,
+        format,
+        &lang,
+        guidelines.as_deref(),
+    )
+    .await
+    {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::error!("report generation failed: {e}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                "report generation failed — you were not charged",
+            )
+                .into_response();
+        }
+    };
+
+    let balance = match billing
+        .deduct_feature(
+            user.user_id,
+            Some(session_id),
+            "ai_report",
+            cost,
+            &format!("AI report — room {}", export.session.room_name),
+            serde_json::json!({ "format": format, "lang": lang, "model": model }),
+        )
+        .await
+    {
+        Ok(b) => Some(b),
+        Err(BillingError::InsufficientFunds) => {
+            let available = billing
+                .get_balance(user.user_id)
+                .await
+                .unwrap_or(Decimal::ZERO);
+            return insufficient_credits("ai_report", cost, available);
+        }
+        Err(e) => {
+            tracing::error!("ai_report deduction failed AFTER generation — delivering free: {e}");
+            None
+        }
+    };
+
+    match ai_report::save_report(
+        pool,
+        session_id,
+        user.user_id,
+        format,
+        &lang,
+        guidelines.as_deref(),
+        &markdown,
+        &model,
+        cost,
+    )
+    .await
+    {
+        Ok(row) => {
+            let mut v = report_json(&row);
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+        Err(e) => {
+            // Charged but couldn't persist — deliver the markdown anyway.
+            tracing::error!("report insert failed after charge: {e}");
+            let mut v = serde_json::json!({
+                "format": format,
+                "lang": lang,
+                "guidelines": guidelines,
+                "markdown": markdown,
+                "model": model,
+                "cost": cost.to_f64().unwrap_or(0.0),
+            });
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+    }
+}
+
+/// `GET /api/sessions/{id}/report` — the latest stored report. Any participant
+/// can read it (404 when none has been generated yet).
+pub async fn report_latest(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match ai_report::latest_report(pool, session_id).await {
+        Ok(Some(row)) => Json(report_json(&row)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no report yet").into_response(),
+        Err(e) => {
+            tracing::error!("report load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }

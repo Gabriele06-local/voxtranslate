@@ -7,6 +7,7 @@
 //! `app()` builds the router from an [`AppState`]; `serve()` is the binary entry.
 
 pub mod admin;
+pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod billing;
@@ -67,6 +68,9 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub rooms: Arc<RoomManager>,
     pub translator: Translator,
+    /// Direct Groq chat client for the AI features (report, sentiment, email
+    /// draft, suggestions). Shares the pooled HTTP client with `translator`.
+    pub groq: Groq,
     /// Postgres pool — `Some` only when auth/billing is configured.
     pub pool: Option<Pool>,
     /// Credit ledger service — `Some` only when auth/billing is configured.
@@ -92,7 +96,8 @@ impl AppState {
     /// stays `None`; use [`AppState::init`] to connect + migrate when billing is
     /// configured.
     pub fn new(config: Config) -> Self {
-        let translator = Translator::new(Groq::new(config.groq_key.clone()));
+        let groq = Groq::new(config.groq_key.clone());
+        let translator = Translator::new(groq.clone());
         let http = reqwest::Client::new();
         let client_id = config
             .billing
@@ -105,6 +110,7 @@ impl AppState {
             config: Arc::new(config),
             rooms: Arc::new(RoomManager::new()),
             translator,
+            groq,
             pool: None,
             billing: None,
             safety: None,
@@ -182,6 +188,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/sessions/{id}/transcript.vtt",
             get(api::transcript_vtt),
+        )
+        .route(
+            "/api/sessions/{id}/report",
+            get(api::report_latest).post(api::report_generate),
         )
         .route(
             "/api/sessions/{id}/bookmarks",
