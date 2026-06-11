@@ -22,11 +22,17 @@ use crate::billing::{usd, BillingError, BillingService};
 use crate::protocol::ServerMessage;
 
 /// Per-session metering parameters.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MeterConfig {
     pub interval_secs: u64,
     pub rate_per_second: f64,
     pub low_balance_threshold: f64,
+    /// When `Some`, the meter skips billing ticks where no other participant
+    /// speaks a different language (all-same-language room = no translations).
+    pub rooms: Option<std::sync::Arc<crate::rooms::RoomManager>>,
+    pub room: String,
+    pub speaker_id: String,
+    pub speaker_lang: String,
 }
 
 /// Charge a billed user for one speaking session. Runs until `cancel` resolves
@@ -50,6 +56,15 @@ pub async fn run_usage_meter(
         tokio::select! {
             _ = &mut cancel => break,
             _ = ticker.tick() => {
+                // Skip this tick when everyone in the room speaks the same
+                // language — translations are not running, so credits shouldn't
+                // be consumed.
+                if let Some(ref rooms) = cfg.rooms {
+                    let targets = rooms.get_room_languages(&cfg.room, &cfg.speaker_id);
+                    if !targets.iter().any(|t| t != &cfg.speaker_lang) {
+                        continue;
+                    }
+                }
                 match billing
                     .deduct_usage(user_id, Some(session_id), interval as i32, amount)
                     .await
@@ -166,6 +181,10 @@ mod tests {
             interval_secs: 1,
             rate_per_second: 0.125, // 0.125 per 1s tick: 0.30 -> 0.175 -> 0.05 -> exhaust
             low_balance_threshold: 1.0,
+            rooms: None,
+            room: String::new(),
+            speaker_id: String::new(),
+            speaker_lang: String::new(),
         };
 
         tokio::time::timeout(

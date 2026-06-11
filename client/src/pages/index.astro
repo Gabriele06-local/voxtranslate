@@ -363,10 +363,8 @@ const LANGS = [
           <span class="field-label" data-i18n="glossaryNameLabel"></span>
           <input id="glossary-name" type="text" maxlength="100" autocomplete="off" data-i18n-ph="glossaryNamePh" />
         </label>
-        <div class="glossary-grid glossary-grid-head" aria-hidden="true">
-          <span data-i18n="glossarySrcLang"></span><span data-i18n="glossaryTgtLang"></span>
-          <span data-i18n="glossarySrcTerm"></span><span data-i18n="glossaryTgtTerm"></span><span></span>
-        </div>
+        <div id="glossary-lang-bar" class="glossary-lang-bar"></div>
+        <div id="glossary-table-head" class="glossary-table-head" aria-hidden="true"></div>
         <div id="glossary-rows" class="glossary-rows"></div>
         <div class="glossary-toolbar">
           <button id="glossary-add-row" class="btn-ghost" data-i18n="glossaryAddRow"></button>
@@ -1059,21 +1057,37 @@ const LANGS = [
     }
     .glossary-badge:disabled { cursor: default; } /* guests: visible, not clickable */
     .glossary-modal { max-width: 660px; }
-    /* Term rows are created in JS → :global() (Astro scoping). */
-    .glossary-grid, .glossary-rows :global(.glossary-row) {
-      display: grid; grid-template-columns: 96px 96px 1fr 1fr 34px; gap: 6px; align-items: center;
+    /* Language selector bar — chips + add dropdown */
+    .glossary-lang-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+    :global(.glossary-lang-chip) {
+      display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2);
+      border-radius: 999px; padding: 3px 10px; font-size: 0.82rem;
     }
-    .glossary-grid-head span { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    :global(.glossary-lang-rm) {
+      background: none; border: none; cursor: pointer; color: var(--muted);
+      font-size: 1rem; line-height: 1; padding: 0; transition: color 0.15s;
+    }
+    :global(.glossary-lang-rm:hover) { color: var(--danger); }
+    :global(.glossary-lang-add) {
+      background: none; border: 1px dashed var(--muted); border-radius: 999px;
+      padding: 3px 10px; font-size: 0.82rem; cursor: pointer; color: var(--muted);
+    }
+    /* Column headers (rebuilt by JS to match selectedLangs) */
+    .glossary-table-head { display: flex; gap: 6px; padding: 0 0 4px; }
+    .glossary-table-head :global(span) { flex: 1; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .glossary-table-head :global(span:last-child) { width: 34px; flex: none; }
+    /* Concept rows (one row per term cluster) — JS-created → :global() */
     .glossary-rows { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
-    /* JS-created controls don't carry Astro's scope attr → restate the base look. */
-    .glossary-rows :global(input), .glossary-rows :global(select) {
-      width: 100%; min-height: 38px; background: var(--bg); border: 1px solid var(--border);
+    .glossary-rows :global(.glossary-row) { display: flex; gap: 6px; align-items: center; }
+    .glossary-rows :global(input) {
+      flex: 1; min-width: 0; min-height: 38px; background: var(--bg); border: 1px solid var(--border);
       color: var(--text); border-radius: 10px; padding: 6px 8px; font-size: 0.85rem;
     }
-    .glossary-rows :global(input:focus), .glossary-rows :global(select:focus) { border-color: var(--accent); }
+    .glossary-rows :global(input:focus) { border-color: var(--accent); outline: none; }
     .glossary-rows :global(.glossary-remove) {
       background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 8px;
-      min-height: 38px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s;
+      width: 34px; flex-shrink: 0; min-height: 38px; display: inline-flex; align-items: center;
+      justify-content: center; transition: all 0.15s;
     }
     .glossary-rows :global(.glossary-remove:hover) { color: var(--danger); border-color: var(--danger); }
     .glossary-toolbar { display: flex; align-items: center; justify-content: space-between; }
@@ -1088,13 +1102,18 @@ const LANGS = [
     }
     .glossary-csv textarea:focus { border-color: var(--accent); }
     .glossary-modal .danger { color: var(--danger); border-color: var(--danger); }
-    @media (max-width: 640px) {
-      .glossary-grid, .glossary-rows :global(.glossary-row) { grid-template-columns: 80px 80px 1fr 1fr 30px; }
-    }
 
     @media (max-width: 600px) {
-      .control-bar { gap: 5px; padding: 8px 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-      .control-btn { width: 40px; height: 40px; font-size: 1rem; }
+      .control-bar {
+        gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* Firefox */
+        /* Fade on right edge to hint at more buttons */
+        -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+        mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+      }
+      .control-bar::-webkit-scrollbar { display: none; }
+      .control-btn { width: 42px; height: 42px; font-size: 1rem; flex-shrink: 0; }
+      .control-btn.leave { width: 52px; } /* slightly wider leave button for safety */
     }
 
     @media (max-width: 768px) {

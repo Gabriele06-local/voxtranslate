@@ -419,6 +419,9 @@ fn spawn_meter(
     guest_spent: &Option<Arc<AtomicU64>>,
     out_tx: &UnboundedSender<String>,
     exhaust_tx: &UnboundedSender<()>,
+    room: &str,
+    speaker_id: &str,
+    speaker_lang: &str,
 ) -> Option<oneshot::Sender<()>> {
     let billing_cfg = state.config.billing.as_ref()?;
     let interval = billing_cfg.pricing.usage_update_interval;
@@ -432,6 +435,10 @@ fn spawn_meter(
             interval_secs: interval,
             rate_per_second: billing_cfg.pricing.user_rate_per_second,
             low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
+            rooms: Some(state.rooms.clone()),
+            room: room.to_string(),
+            speaker_id: speaker_id.to_string(),
+            speaker_lang: speaker_lang.to_string(),
         };
         tokio::spawn(run_usage_meter(
             svc.clone(),
@@ -683,6 +690,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         &guest_spent,
                                         &out_tx,
                                         &exhaust_tx,
+                                        &room,
+                                        &id,
+                                        &live_lang,
                                     );
                                 }
                             }

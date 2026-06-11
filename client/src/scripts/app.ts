@@ -421,7 +421,7 @@ function startCall(): void {
   show(btnRecord, isRecordingSupported()); // Safari etc.: no MediaRecorder → no button
   show(btnShare, !IS_MOBILE && !!navigator.mediaDevices?.getDisplayMedia); // no screen share on mobile
   show(btnPip, 'documentPictureInPicture' in window); // Document PiP: desktop Chromium only
-  show(btnFullscreen, !!document.documentElement.requestFullscreen); // iPhone Safari lacks it
+  show(btnFullscreen, !IS_MOBILE && !!document.documentElement.requestFullscreen); // not needed on mobile
 
   // Self cell — reflect the pre-join mic/camera choice.
   const myAvatar = billing && auth.isLoggedIn() ? auth.getUser()?.avatar_url : null;
@@ -1159,29 +1159,45 @@ btnPip.addEventListener('click', () => {
     pipWindow = null;
     return;
   }
-  if ('documentPictureInPicture' in window) {
-    (window as any).documentPictureInPicture.requestWindow({ width: 480, height: 360 }).then((w: Window) => {
+  if (!('documentPictureInPicture' in window)) return;
+  (window as any).documentPictureInPicture
+    .requestWindow({ width: 480, height: 360 })
+    .then((w: Window) => {
       pipWindow = w;
+      // Copy all stylesheets into the PiP window so video-cell layout renders.
+      [...document.styleSheets].forEach((sheet) => {
+        try {
+          const style = w.document.createElement('style');
+          style.textContent = [...sheet.cssRules].map((r) => r.cssText).join('\n');
+          w.document.head.appendChild(style);
+        } catch { /* cross-origin sheet — skip */ }
+      });
+      w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
       const stage = document.querySelector('.video-stage') as HTMLElement;
       if (stage) {
-        w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
         const clone = stage.cloneNode(true) as HTMLElement;
         clone.style.cssText = 'width:100%;height:100dvh';
+        // Mirror the live grid layout so columns/rows match the main window.
+        const cloneGrid = clone.querySelector<HTMLElement>('.video-grid');
+        if (cloneGrid) {
+          cloneGrid.style.gridTemplateColumns = videoGrid.style.gridTemplateColumns;
+          cloneGrid.style.gridTemplateRows = videoGrid.style.gridTemplateRows;
+        }
         w.document.body.appendChild(clone);
-        // Re-set video srcObjects in the cloned stage
+        // Re-attach srcObjects and start playback (cloneNode doesn't copy streams).
         clone.querySelectorAll('video').forEach((v) => {
           const peer = (v.closest('[data-peer]') as HTMLElement)?.dataset.peer;
           if (!peer) return;
-          const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peer)}"]`);
-          if (cell) {
-            const src = (cell.querySelector('video') as HTMLVideoElement)?.srcObject;
-            if (src) v.srcObject = src;
+          const orig = videoGrid.querySelector<HTMLVideoElement>(`[data-peer="${cssEsc(peer)}"] video`);
+          if (orig?.srcObject) {
+            v.srcObject = orig.srcObject;
+            void (v as HTMLVideoElement).play().catch(() => {});
           }
         });
       }
       w.addEventListener('pagehide', () => { pipWindow = null; });
-    }).catch(() => {});
-  }
+    })
+    .catch(() => {});
 });
 
 btnView.addEventListener('click', () => {

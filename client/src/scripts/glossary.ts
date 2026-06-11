@@ -4,6 +4,10 @@
 // room code on home, and an in-call header badge that appears (via the
 // `glossary_active` WS message) whenever the room has entries. Auth-only:
 // guests see the badge but can't open the editor.
+//
+// Each row is a "concept": one cluster of equivalent terms across languages.
+// The user picks which languages appear as columns (2–8); saving generates all
+// A↔B pairs automatically so the server receives flat GlossaryEntry rows.
 
 import {
   deleteGlossary,
@@ -23,6 +27,8 @@ const homeBtn = $<HTMLButtonElement>('btn-glossary-home');
 const badge = $<HTMLButtonElement>('glossary-badge');
 const modal = $('glossary-modal');
 const nameInput = $<HTMLInputElement>('glossary-name');
+const langBarEl = $('glossary-lang-bar');
+const tableHeadEl = $('glossary-table-head');
 const rowsEl = $('glossary-rows');
 const addRowBtn = $<HTMLButtonElement>('glossary-add-row');
 const countEl = $('glossary-count');
@@ -31,6 +37,8 @@ const importBtn = $<HTMLButtonElement>('glossary-import');
 const statusEl = $('glossary-status');
 const deleteBtn = $<HTMLButtonElement>('glossary-delete');
 const saveBtn = $<HTMLButtonElement>('glossary-save');
+
+const MAX_LANGS = 8;
 
 /** app.ts's show(): modal-overlay visibility + focus trap/restore. */
 let show: (el: HTMLElement, visible: boolean) => void = (el, v) =>
@@ -41,6 +49,14 @@ let activeRoom: string | null = null;
 let editingRoom: string | null = null;
 let maxEntries = 200;
 let deleteArmTimer: number | null = null;
+
+/** Active language columns shown in the concept table. */
+let selectedLangs: string[] = ['en', 'it'];
+
+/** One row in the concept table: lang → term text. */
+type Concept = Record<string, string>;
+
+// ---- Public API --------------------------------------------------------------
 
 /** Wire events; app.ts passes its `show` so the modal gets the focus trap. */
 export function initGlossary(opts: { show?: typeof show } = {}): void {
@@ -71,8 +87,9 @@ export function onGlossaryActive(name: string | null, entries: number): void {
   badge.classList.remove('hidden');
 }
 
+// ---- Open / close ------------------------------------------------------------
+
 homeBtn.addEventListener('click', () => {
-  // Same normalization the join flow applies — glossaries key on that form.
   const room = $<HTMLInputElement>('room').value.trim().toLowerCase();
   if (!room) {
     $<HTMLInputElement>('room').focus();
@@ -91,6 +108,7 @@ async function openEditor(room: string): Promise<void> {
   editingRoom = room;
   setStatus('', false);
   csvText.value = '';
+  selectedLangs = ['en', 'it'];
   renderEditor({ name: null, entries: [], max_entries: maxEntries });
   show(modal, true);
   const g = await fetchGlossary(room);
@@ -104,43 +122,134 @@ function setStatus(text: string, isError: boolean): void {
   statusEl.classList.toggle('error', isError);
 }
 
-// ---- Table -------------------------------------------------------------------
+// ---- Concept ↔ entry conversion ---------------------------------------------
+
+/**
+ * Derive `selectedLangs` from the entry set, then group entries into concept
+ * rows (one row per distinct source_term in the primary language).
+ */
+function entriesToConcepts(entries: GlossaryEntry[]): Concept[] {
+  if (!entries.length) return [{}];
+  const langs = new Set<string>();
+  entries.forEach((e) => {
+    langs.add(e.source_lang);
+    langs.add(e.target_lang);
+  });
+  selectedLangs = Array.from(langs);
+  const primary = selectedLangs[0];
+  const seen = new Set<string>();
+  const concepts: Concept[] = [];
+  for (const entry of entries) {
+    if (entry.source_lang !== primary) continue;
+    if (seen.has(entry.source_term)) continue;
+    seen.add(entry.source_term);
+    const concept: Concept = { [primary]: entry.source_term };
+    for (const lang of selectedLangs.slice(1)) {
+      const tr = entries.find(
+        (e) =>
+          e.source_lang === primary &&
+          e.target_lang === lang &&
+          e.source_term === entry.source_term,
+      );
+      if (tr) concept[lang] = tr.target_term;
+    }
+    concepts.push(concept);
+  }
+  return concepts.length ? concepts : [{}];
+}
+
+// ---- Render ------------------------------------------------------------------
 
 function renderEditor(g: Glossary): void {
   maxEntries = g.max_entries;
   nameInput.value = g.name ?? '';
+  const concepts = entriesToConcepts(g.entries);
+  renderLangBar();
+  renderTableHead();
   rowsEl.innerHTML = '';
-  for (const e of g.entries) addRow(e);
-  if (!g.entries.length) addRow();
+  for (const c of concepts) addConceptRow(c);
   updateCount();
 }
 
-function langSelect(label: string, value: string): HTMLSelectElement {
-  const sel = document.createElement('select');
-  sel.setAttribute('aria-label', label);
-  for (const code of SUPPORTED) {
-    const opt = document.createElement('option');
-    opt.value = code;
-    opt.textContent = ENDONYM[code];
-    sel.appendChild(opt);
+function renderLangBar(): void {
+  langBarEl.innerHTML = '';
+
+  for (const lang of selectedLangs) {
+    const chip = document.createElement('span');
+    chip.className = 'glossary-lang-chip';
+    chip.textContent = ENDONYM[lang] ?? lang;
+
+    if (selectedLangs.length > 2) {
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'glossary-lang-rm';
+      rm.textContent = '×';
+      rm.title = `Remove ${ENDONYM[lang] ?? lang}`;
+      rm.addEventListener('click', () => {
+        selectedLangs = selectedLangs.filter((l) => l !== lang);
+        const concepts = collectConceptsRaw();
+        renderLangBar();
+        renderTableHead();
+        rebuildRows(concepts);
+        updateCount();
+      });
+      chip.appendChild(rm);
+    }
+    langBarEl.appendChild(chip);
   }
-  sel.value = value;
-  return sel;
+
+  if (selectedLangs.length < MAX_LANGS) {
+    const sel = document.createElement('select');
+    sel.className = 'glossary-lang-add';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = t('glossaryAddLang');
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    sel.appendChild(placeholder);
+    for (const code of SUPPORTED) {
+      if (selectedLangs.includes(code)) continue;
+      const opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = ENDONYM[code];
+      sel.appendChild(opt);
+    }
+    sel.addEventListener('change', () => {
+      if (!sel.value) return;
+      selectedLangs.push(sel.value);
+      const concepts = collectConceptsRaw();
+      renderLangBar();
+      renderTableHead();
+      rebuildRows(concepts);
+      updateCount();
+    });
+    langBarEl.appendChild(sel);
+  }
 }
 
-function termInput(label: string, value: string): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.maxLength = 200;
-  input.autocomplete = 'off';
-  input.value = value;
-  input.setAttribute('aria-label', label);
-  return input;
+function renderTableHead(): void {
+  tableHeadEl.innerHTML = '';
+  for (const lang of selectedLangs) {
+    const span = document.createElement('span');
+    span.textContent = ENDONYM[lang] ?? lang;
+    tableHeadEl.appendChild(span);
+  }
+  tableHeadEl.appendChild(document.createElement('span')); // spacer for delete column
 }
 
-function addRow(e?: GlossaryEntry): void {
+function addConceptRow(concept: Concept = {}): void {
   const row = document.createElement('div');
   row.className = 'glossary-row';
+  for (const lang of selectedLangs) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 200;
+    input.autocomplete = 'off';
+    input.value = concept[lang] ?? '';
+    input.dataset.lang = lang;
+    input.placeholder = ENDONYM[lang] ?? lang;
+    row.appendChild(input);
+  }
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'glossary-remove';
@@ -151,20 +260,34 @@ function addRow(e?: GlossaryEntry): void {
     row.remove();
     updateCount();
   });
-  row.append(
-    langSelect(t('glossarySrcLang'), e?.source_lang ?? 'en'),
-    langSelect(t('glossaryTgtLang'), e?.target_lang ?? 'it'),
-    termInput(t('glossarySrcTerm'), e?.source_term ?? ''),
-    termInput(t('glossaryTgtTerm'), e?.target_term ?? ''),
-    remove,
-  );
+  row.appendChild(remove);
   rowsEl.appendChild(row);
-  updateCount();
+}
+
+/** Rebuild all rows after a lang change, preserving term text. */
+function rebuildRows(concepts: Concept[]): void {
+  rowsEl.innerHTML = '';
+  for (const c of concepts) addConceptRow(c);
+  if (!rowsEl.children.length) addConceptRow();
+}
+
+/** Read current row data without validation (used when the lang bar changes). */
+function collectConceptsRaw(): Concept[] {
+  const concepts: Concept[] = [];
+  for (const row of rowsEl.querySelectorAll<HTMLElement>('.glossary-row')) {
+    const concept: Concept = {};
+    for (const input of row.querySelectorAll<HTMLInputElement>('input[data-lang]')) {
+      concept[input.dataset.lang!] = input.value;
+    }
+    concepts.push(concept);
+  }
+  return concepts;
 }
 
 addRowBtn.addEventListener('click', () => {
-  addRow();
+  addConceptRow();
   rowsEl.querySelector<HTMLElement>('.glossary-row:last-child input')?.focus();
+  updateCount();
 });
 
 function updateCount(): void {
@@ -174,36 +297,50 @@ function updateCount(): void {
 }
 
 /**
- * Read the table back into entries. Rows with both terms empty are skipped
- * (leftover blanks); a half-filled row or a same-language pair is an error.
+ * Validate the concept table and return flat GlossaryEntry pairs.
+ * Rows with all cells empty are skipped; a row with only one filled cell is
+ * an error (need at least two languages to form a translation pair).
  */
-function collectRows(): GlossaryEntry[] | null {
-  const entries: GlossaryEntry[] = [];
+function collectConcepts(): GlossaryEntry[] | null {
+  const allEntries: GlossaryEntry[] = [];
   for (const row of rowsEl.querySelectorAll<HTMLElement>('.glossary-row')) {
-    const [src, tgt] = Array.from(row.querySelectorAll('select')).map((s) => s.value);
-    const [sterm, tterm] = Array.from(row.querySelectorAll('input')).map((i) => i.value.trim());
-    if (!sterm && !tterm) continue;
-    if (!sterm || !tterm || src === tgt) {
+    const concept: Concept = {};
+    for (const input of row.querySelectorAll<HTMLInputElement>('input[data-lang]')) {
+      const v = input.value.trim();
+      if (v) concept[input.dataset.lang!] = v;
+    }
+    const filled = selectedLangs.filter((l) => concept[l]);
+    if (filled.length === 0) continue;
+    if (filled.length === 1) {
       setStatus(t('glossaryRowInvalid'), true);
       return null;
     }
-    entries.push({ source_lang: src, target_lang: tgt, source_term: sterm, target_term: tterm });
+    for (let i = 0; i < filled.length; i++) {
+      for (let j = 0; j < filled.length; j++) {
+        if (i === j) continue;
+        allEntries.push({
+          source_lang: filled[i],
+          target_lang: filled[j],
+          source_term: concept[filled[i]],
+          target_term: concept[filled[j]],
+        });
+      }
+    }
   }
-  return entries;
+  return allEntries;
 }
 
-// ---- Save / import / delete ----------------------------------------------------
+// ---- Save / import / delete --------------------------------------------------
 
 /** Save the table. Returns true on success (import chains on this). */
 async function doSave(silent: boolean): Promise<boolean> {
   const room = editingRoom;
-  const entries = collectRows();
+  const entries = collectConcepts();
   if (!room || !entries) return false;
   saveBtn.disabled = true;
   const res = await saveGlossary(room, nameInput.value.trim() || null, entries);
   saveBtn.disabled = false;
   if (!res.glossary) {
-    // The server's 400 carries the precise reason (entry index, cap, …).
     setStatus(res.error || t('glossaryLoadFailed'), true);
     return false;
   }
