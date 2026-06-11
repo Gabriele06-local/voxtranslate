@@ -788,6 +788,70 @@ function updateGridCount(): void {
   layoutVideos();
 }
 
+// ---- Screen share / focus-cell pan (mobile) ---------------------------------
+
+function disablePan(cell: HTMLElement): void {
+  cell.classList.remove('pan-mode');
+  const v = cell.querySelector<HTMLVideoElement>('video');
+  if (v) v.style.transform = '';
+  cell.querySelector('.pan-toggle')?.remove();
+  cell.querySelector('.pan-hint')?.remove();
+}
+
+function setupPan(cell: HTMLElement): void {
+  if (cell.dataset.panSetup) return; // listeners already attached
+  cell.dataset.panSetup = '1';
+
+  let tx = 0, ty = 0, startX = 0, startY = 0;
+
+  cell.addEventListener('touchstart', (e: TouchEvent) => {
+    if (!cell.classList.contains('pan-mode') || e.touches.length !== 1) return;
+    startX = e.touches[0].clientX - tx;
+    startY = e.touches[0].clientY - ty;
+  }, { passive: true });
+
+  cell.addEventListener('touchmove', (e: TouchEvent) => {
+    if (!cell.classList.contains('pan-mode') || e.touches.length !== 1) return;
+    e.preventDefault();
+    tx = e.touches[0].clientX - startX;
+    ty = e.touches[0].clientY - startY;
+    const v = cell.querySelector<HTMLVideoElement>('video');
+    if (v) v.style.transform = `translate(${tx}px, ${ty}px)`;
+  }, { passive: false });
+
+  // Pan toggle button
+  const btn = document.createElement('button');
+  btn.className = 'pan-toggle';
+  btn.title = 'Fit / Pan';
+  btn.textContent = '⤢';
+  cell.appendChild(btn);
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const active = cell.classList.toggle('pan-mode');
+    btn.classList.toggle('active', active);
+    if (active) {
+      // Reset transform and show hint
+      tx = 0; ty = 0;
+      const v = cell.querySelector<HTMLVideoElement>('video');
+      if (v) v.style.transform = '';
+      const existing = cell.querySelector('.pan-hint');
+      if (!existing) {
+        const hint = document.createElement('span');
+        hint.className = 'pan-hint';
+        hint.textContent = 'Trascina per spostare';
+        cell.appendChild(hint);
+        hint.addEventListener('animationend', () => hint.remove());
+      }
+    } else {
+      // Reset position on exit
+      tx = 0; ty = 0;
+      const v = cell.querySelector<HTMLVideoElement>('video');
+      if (v) v.style.transform = '';
+    }
+  });
+}
+
 // The grid fills the whole stage. In focus mode (pinned or speaker), the main
 // cell fills the stage and others become small overlays at the bottom-right.
 function layoutVideos(): void {
@@ -803,8 +867,11 @@ function layoutVideos(): void {
   const focusId = pinnedPeerId || (viewMode === 'speaker' ? lastSpeakerId : null);
   const focusCell = focusId ? videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(focusId)}"]`) : null;
 
-  // Remove all special classes first
-  allCells.forEach((c) => c.classList.remove('main-cell', 'video-thumb', 'active-speaker'));
+  // Remove all special classes first; reset pan state on cells leaving focus
+  allCells.forEach((c) => {
+    c.classList.remove('main-cell', 'video-thumb', 'active-speaker');
+    if (c.classList.contains('pan-mode')) disablePan(c);
+  });
 
   if (focusCell && focusId && n > 1) {
     // Focus mode: one main + thumbnails
@@ -816,6 +883,7 @@ function layoutVideos(): void {
     videoGrid.style.height = '100%';
 
     focusCell.classList.add('main-cell');
+    if (IS_MOBILE) setupPan(focusCell);
 
     for (const cell of allCells) {
       if (cell === focusCell) continue;

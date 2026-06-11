@@ -691,7 +691,7 @@ const LANGS = [
        Without this the cell/video styles never apply and the raw 1280x720 video
        overflows the cell (clipped → "cut off"). */
     .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
-    .video-grid :global(.video-cell) { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; min-width: 0; }
+    .video-grid :global(.video-cell) { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; min-width: 0; transform: translateZ(0); /* iOS: force GPU layer so overflow:hidden clips filter/animated children */ }
     .video-grid :global(.video-cell video) { width: 100%; height: 100%; object-fit: cover; display: block; }
     .video-grid :global(.video-cell.self video) { transform: scaleX(-1); }
     .video-grid :global(.video-cell.self) { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -770,6 +770,7 @@ const LANGS = [
     .chat-panel {
       width: 320px; background: var(--surface); border-left: 1px solid var(--border);
       display: flex; flex-direction: column; transition: margin-right 0.3s;
+      position: relative; z-index: 1; /* paint above any promoted compositor layers in sibling panels (e.g. .part-hand animation on Chrome) */
     }
     .chat-panel.closed { margin-right: -321px; }
     .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -1103,10 +1104,31 @@ const LANGS = [
     .glossary-csv textarea:focus { border-color: var(--accent); }
     .glossary-modal .danger { color: var(--danger); border-color: var(--danger); }
 
+    /* ---------- Screen share pan mode (mobile focus cell) ---------- */
+    .video-grid :global(.video-cell.pan-mode) { touch-action: none; cursor: grab; }
+    .video-grid :global(.video-cell.pan-mode video) { object-fit: contain !important; will-change: transform; transition: none; }
+    .video-grid :global(.pan-toggle) {
+      position: absolute; bottom: 12px; left: 12px; z-index: 3;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.25);
+      color: #fff; font-size: 1.05rem; display: grid; place-items: center;
+      cursor: pointer; backdrop-filter: blur(4px); transition: background 0.15s;
+    }
+    .video-grid :global(.pan-toggle.active) { background: var(--accent); border-color: var(--accent); }
+    .video-grid :global(.pan-hint) {
+      position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.65); color: #fff; font-size: 0.8rem; white-space: nowrap;
+      padding: 4px 14px; border-radius: 99px; pointer-events: none; z-index: 3;
+      animation: pan-hint-fade 2.5s ease-out forwards;
+    }
+    @keyframes pan-hint-fade { 0%,60% { opacity: 1; } 100% { opacity: 0; } }
+
     @media (max-width: 600px) {
       .control-bar {
         gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
         scrollbar-width: none; /* Firefox */
+        justify-content: flex-start; /* prevent left-side clip when content overflows center */
+        width: 100%; box-sizing: border-box;
       }
       .control-bar::-webkit-scrollbar { display: none; }
       .control-btn { width: 42px; height: 42px; font-size: 1rem; flex-shrink: 0; }
