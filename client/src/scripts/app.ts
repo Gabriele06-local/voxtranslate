@@ -96,6 +96,7 @@ const chatBadge = $('chat-badge');
 const btnMic = $('btn-mic');
 const btnCam = $('btn-cam');
 const btnTts = $('btn-tts');
+const btnSubtitle = $('btn-subtitle');
 const btnHand = $('btn-hand');
 const btnChat = $('btn-chat');
 const btnFullscreen = $('btn-fullscreen');
@@ -126,6 +127,7 @@ let visibilityPublic = true;
 let micOn = true;
 let camOn = true;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
+let subtitlesOn = true; // show subtitle overlays on video cells
 let handRaised = false;
 let pipWindow: Window | null = null;
 let manualClose = false;
@@ -582,13 +584,13 @@ async function handleServer(msg: any): Promise<void> {
       break;
     }
     case 'subtitle_interim':
-      showSubtitle(msg.speaker_id, msg.text, true);
+      if (subtitlesOn) showSubtitle(msg.speaker_id, msg.text, true);
       break;
     case 'subtitle_final': {
       transcriptEvents++;
       const myLang = session?.lang || 'en';
       const text = msg.translations?.[myLang] ?? msg.original;
-      showSubtitle(msg.speaker_id, text, false, msg.original);
+      if (subtitlesOn) showSubtitle(msg.speaker_id, text, false, msg.original);
       // Track active speaker for speaker view
       if (msg.speaker_id !== myId) {
         lastSpeakerId = msg.speaker_id;
@@ -1075,6 +1077,9 @@ function setControlState(): void {
   btnTts.classList.toggle('active-success', ttsOn);
   btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
   setToggleState(btnTts, ttsOn);
+  btnSubtitle.classList.toggle('active-success', subtitlesOn);
+  btnSubtitle.innerHTML = icon(subtitlesOn ? 'subtitle' : 'subtitle-off');
+  setToggleState(btnSubtitle, subtitlesOn, t(subtitlesOn ? 'subtitleTip' : 'subtitleOffTip'));
   btnHand.classList.toggle('active-success', handRaised);
   btnHand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
   setToggleState(btnHand, handRaised, handRaised ? t('handUp') : t('handTip'));
@@ -1120,6 +1125,14 @@ btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
   if (!ttsOn && window.speechSynthesis) speechSynthesis.cancel();
   applyAudioMode(); // mute/unmute foreign originals to match the mode
+  setControlState();
+});
+
+btnSubtitle.addEventListener('click', () => {
+  subtitlesOn = !subtitlesOn;
+  if (!subtitlesOn) {
+    document.querySelectorAll<HTMLElement>('.subtitle-area').forEach((a) => { a.innerHTML = ''; });
+  }
   setControlState();
 });
 
