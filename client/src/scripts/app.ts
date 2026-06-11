@@ -979,12 +979,8 @@ function applyAudioMode(): void {
       const peerLang = peerNames.get(id)?.lang;
       video.muted = !!(ttsOn && peerLang && myLang && peerLang !== myLang);
     }
-    // Keep PiP clone in sync so toggling TTS while PiP is open doesn't desync audio.
-    if (pipWindow && !pipWindow.closed) {
-      const pipCell = pipWindow.document.querySelector<HTMLElement>(`[data-peer="${cssEsc(id)}"]`);
-      const pipVideo = pipCell?.querySelector('video') as HTMLVideoElement | null;
-      if (pipVideo) pipVideo.muted = video.muted;
-    }
+    // PiP clones are display-only and always muted (audio stays on these live
+    // elements), so there's nothing to keep in sync here.
   });
 }
 
@@ -1232,8 +1228,12 @@ btnPip.addEventListener('click', () => {
     return;
   }
   if (!('documentPictureInPicture' in window)) return;
+  // Size the floating window to the current participant count instead of a fixed
+  // oversized box: a compact 16:9 single feed when solo, a roomier grid otherwise.
+  const tileCount = Math.max(videoGrid.querySelectorAll('.video-cell').length, 1);
+  const pipSize = tileCount <= 1 ? { width: 320, height: 180 } : { width: 420, height: 320 };
   (window as any).documentPictureInPicture
-    .requestWindow({ width: 480, height: 360 })
+    .requestWindow(pipSize)
     .then((w: Window) => {
       pipWindow = w;
       // Copy stylesheets into the PiP window. Use <link> for external sheets (preserves
@@ -1264,18 +1264,21 @@ btnPip.addEventListener('click', () => {
           cloneGrid.style.gridTemplateRows = videoGrid.style.gridTemplateRows;
         }
         w.document.body.appendChild(clone);
-        // Re-attach srcObjects and start playback (cloneNode doesn't copy streams or
-        // the muted IDL property — video.muted=true sets JS state, not the HTML
-        // attribute, so the clone is always unmuted by default). Chrome's autoplay
-        // policy blocks unmuted play() after the transient user activation from
-        // requestWindow() is consumed, producing silent black frames. Copy orig.muted
-        // explicitly so the clone's muted state matches the live element.
+        // Re-attach srcObjects and start playback (cloneNode doesn't copy MediaStreams).
+        // The clones are DISPLAY-ONLY: force-mute every one of them and let audio keep
+        // playing from the live elements in the main window (still in the DOM with the
+        // same MediaStream). This is what makes remote tiles render: Chrome's autoplay
+        // policy blocks an UNMUTED play() once the transient activation from
+        // requestWindow() is consumed, so an unmuted remote clone never starts and shows
+        // a silent black frame — while your own (already-muted) clone plays. Muting every
+        // clone lets them all autoplay and also avoids double audio from the same track
+        // playing in two windows at once.
         clone.querySelectorAll('video').forEach((v) => {
           const peer = (v.closest('[data-peer]') as HTMLElement)?.dataset.peer;
           if (!peer) return;
           const orig = videoGrid.querySelector<HTMLVideoElement>(`[data-peer="${cssEsc(peer)}"] video`);
           if (orig?.srcObject) {
-            v.muted = orig.muted;
+            v.muted = true;
             v.srcObject = orig.srcObject;
             void v.play().catch(() => {});
           }
