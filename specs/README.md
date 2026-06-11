@@ -43,16 +43,17 @@ Each spec follows the same skeleton:
 | [0008](0008-managed-content-i18n/spec.md) | Managed content & i18n: DB-overridable strings, legal pages, 404 | ✅ Shipped | 2026-06-10 | `151980c`, `90492d1`, `c10a2df` |
 | [0009](0009-session-transcripts/spec.md) | Session transcript download (PDF + JSON) | ✅ Shipped | 2026-06-10 | `7c969de` |
 | [0010](0010-composite-recording/spec.md) | Composite video recording (client-side) | ✅ Shipped | 2026-06-10 | `7c969de` |
-| 0011 | Room glossary: enforced terminology in translations | ✅ Shipped — *spec doc pending* | 2026-06-10 | `18d20f8` |
-| 0012 | Auto language detection (join with "auto") | ✅ Shipped — *spec doc pending* | 2026-06-10 | `a594e94` |
-| 0013 | In-call bookmarks: labels, side panel, exports | ✅ Shipped — *spec doc pending* | 2026-06-10 | `f6eb14a` |
-| 0014 | AI session report (Groq, credit-billed) | ✅ Shipped — *spec doc pending* | 2026-06-10 | `c2bc646` |
-| 0015 | Sentiment analysis (chunked scoring, cached) | ✅ Shipped — *spec doc pending* | 2026-06-10 | `d5ce553` |
+| [0011](0011-room-glossary/spec.md) | Room glossary: enforced terminology in translations | ✅ Shipped | 2026-06-10 | `18d20f8` |
+| [0012](0012-auto-language-detection/spec.md) | Auto language detection (join with "auto") | ✅ Shipped | 2026-06-10 | `a594e94` |
+| [0013](0013-call-bookmarks/spec.md) | In-call bookmarks: labels, side panel, exports | ✅ Shipped | 2026-06-10 | `f6eb14a` |
+| [0014](0014-ai-session-report/spec.md) | AI session report (Groq, credit-billed) | ✅ Shipped | 2026-06-10 | `c2bc646` |
+| [0015](0015-sentiment-analysis/spec.md) | Sentiment analysis (chunked scoring, cached) | ✅ Shipped | 2026-06-10 | `d5ce553` |
 | [0016](0016-follow-up-email/spec.md) | Follow-up email: AI draft + Resend delivery | ✅ Shipped | 2026-06-11 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
-> above are now canonical. Backfill is an open item.
+> above are now canonical. Their specs were backfilled retroactively on
+> 2026-06-11 from the shipped code and commit history.
 
 ## System at a glance
 

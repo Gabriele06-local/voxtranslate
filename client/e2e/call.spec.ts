@@ -38,6 +38,20 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
   const bobChat = await b.page.$$eval('.chat-msg-other .chat-text', (e) => e.map((x) => x.textContent));
   expect(bobChat.some((c) => c && c.trim())).toBeTruthy();
 
+  // Emoji: a quick reaction floats over the sender's cell on every page…
+  await a.page.click('#emoji-toggle');
+  await a.page.click('#emoji-react button'); // first quick reaction (👍)
+  await Promise.all([
+    a.page.waitForSelector('.video-cell.self .emoji-float', { timeout: 5000 }),
+    b.page.waitForSelector('.video-cell:not(.self) .emoji-float', { timeout: 5000 }),
+  ]);
+  // …while a grid emoji inserts into the chat input (panel reopens: send closed it).
+  await a.page.click('#emoji-toggle');
+  await a.page.click('#emoji-grid button');
+  expect(await a.page.inputValue('#chat-input')).toContain('👍');
+  await a.page.fill('#chat-input', '');
+  await a.page.click('#emoji-toggle'); // close the panel
+
   // Subtitles: a node speaker (it) streams audio; Alice (en) sees a translation.
   const carla = new NodePeer(room, 'it', 'Carla');
   await carla.ready;

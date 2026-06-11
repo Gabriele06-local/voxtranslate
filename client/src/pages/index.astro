@@ -252,6 +252,9 @@ const LANGS = [
           <div class="emoji-picker-wrap">
             <button id="emoji-toggle" class="btn-ghost icon-btn emoji-btn" title="Emoji" aria-label="Emoji" aria-haspopup="true" aria-expanded="false" aria-controls="emoji-panel">😀</button>
             <div id="emoji-panel" class="emoji-panel hidden">
+              <span class="emoji-section-label" data-i18n="emojiReact"></span>
+              <div class="emoji-react-row" id="emoji-react"></div>
+              <span class="emoji-section-label" data-i18n="emojiInsert"></span>
               <div class="emoji-grid" id="emoji-grid"></div>
             </div>
           </div>
@@ -926,12 +929,23 @@ const LANGS = [
     .emoji-grid {
       display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
     }
-    .emoji-grid button {
+    .emoji-grid button,
+    .emoji-react-row button {
       background: none; border: none; font-size: 1.3rem; padding: 4px;
       border-radius: 6px; cursor: pointer; transition: background 0.1s;
       display: grid; place-items: center;
     }
-    .emoji-grid button:hover { background: var(--border); }
+    .emoji-grid button:hover,
+    .emoji-react-row button:hover { background: var(--border); }
+    /* Quick reactions: float over the video grid (spec 0002); the grid below inserts into chat. */
+    .emoji-section-label {
+      display: block; font-size: 0.68rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em; margin: 2px 4px 3px;
+    }
+    .emoji-react-row {
+      display: flex; gap: 2px; justify-content: space-between;
+      border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px;
+    }
 
     /* ---------- Pinned / Focus layout ---------- */
     .video-grid[data-mode="focus"] :global(.video-cell) { display: none; }

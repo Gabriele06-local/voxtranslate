@@ -2035,10 +2035,22 @@ initLangDetect({
 });
 
 // ---- Emoji picker ----------------------------------------------------------
+// Two sections: quick reactions (sent to the room, float over the video grid)
+// and the full grid (inserts into the chat input at the cursor).
+const REACTION_LIST = ['👍', '❤️', '😂', '👏', '🎉', '😮'];
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];
 const emojiToggle = $('emoji-toggle');
 const emojiPanel = $('emoji-panel');
+const emojiReact = $('emoji-react');
 const emojiGrid = $('emoji-grid');
+
+for (const em of REACTION_LIST) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = em;
+  btn.addEventListener('click', () => sendEmoji(em));
+  emojiReact.appendChild(btn);
+}
 
 for (const em of EMOJI_LIST) {
   const btn = document.createElement('button');
@@ -2061,6 +2073,11 @@ emojiToggle.addEventListener('click', (e) => {
   setEmojiPanelOpen(emojiPanel.classList.contains('hidden'));
 });
 document.addEventListener('click', () => setEmojiPanelOpen(false));
+
+function sendEmoji(emoji: string): void {
+  ws?.send(JSON.stringify({ type: 'emoji', emoji }));
+  setEmojiPanelOpen(false);
+}
 
 function insertEmoji(emoji: string): void {
   const start = chatInput.selectionStart ?? chatInput.value.length;
