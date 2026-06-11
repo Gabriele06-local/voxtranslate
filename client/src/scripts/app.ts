@@ -973,14 +973,18 @@ function applyAudioMode(): void {
     if (!video) return;
     if (id === myId) {
       video.muted = true;
-      return;
-    }
-    if (blockedPeers.has(id)) {
+    } else if (blockedPeers.has(id)) {
       video.muted = true; // locally blocked → always silent
-      return;
+    } else {
+      const peerLang = peerNames.get(id)?.lang;
+      video.muted = !!(ttsOn && peerLang && myLang && peerLang !== myLang);
     }
-    const peerLang = peerNames.get(id)?.lang;
-    video.muted = !!(ttsOn && peerLang && myLang && peerLang !== myLang);
+    // Keep PiP clone in sync so toggling TTS while PiP is open doesn't desync audio.
+    if (pipWindow && !pipWindow.closed) {
+      const pipCell = pipWindow.document.querySelector<HTMLElement>(`[data-peer="${cssEsc(id)}"]`);
+      const pipVideo = pipCell?.querySelector('video') as HTMLVideoElement | null;
+      if (pipVideo) pipVideo.muted = video.muted;
+    }
   });
 }
 
@@ -1232,13 +1236,21 @@ btnPip.addEventListener('click', () => {
     .requestWindow({ width: 480, height: 360 })
     .then((w: Window) => {
       pipWindow = w;
-      // Copy all stylesheets into the PiP window so video-cell layout renders.
+      // Copy stylesheets into the PiP window. Use <link> for external sheets (preserves
+      // browser cache and avoids SecurityError on cssRules access in some contexts).
       [...document.styleSheets].forEach((sheet) => {
-        try {
-          const style = w.document.createElement('style');
-          style.textContent = [...sheet.cssRules].map((r) => r.cssText).join('\n');
-          w.document.head.appendChild(style);
-        } catch { /* cross-origin sheet — skip */ }
+        if (sheet.href) {
+          const link = w.document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = sheet.href;
+          w.document.head.appendChild(link);
+        } else {
+          try {
+            const style = w.document.createElement('style');
+            style.textContent = [...sheet.cssRules].map((r) => r.cssText).join('\n');
+            w.document.head.appendChild(style);
+          } catch { /* cross-origin sheet — skip */ }
+        }
       });
       w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
       const stage = document.querySelector('.video-stage') as HTMLElement;
@@ -1252,14 +1264,20 @@ btnPip.addEventListener('click', () => {
           cloneGrid.style.gridTemplateRows = videoGrid.style.gridTemplateRows;
         }
         w.document.body.appendChild(clone);
-        // Re-attach srcObjects and start playback (cloneNode doesn't copy streams).
+        // Re-attach srcObjects and start playback (cloneNode doesn't copy streams or
+        // the muted IDL property — video.muted=true sets JS state, not the HTML
+        // attribute, so the clone is always unmuted by default). Chrome's autoplay
+        // policy blocks unmuted play() after the transient user activation from
+        // requestWindow() is consumed, producing silent black frames. Copy orig.muted
+        // explicitly so the clone's muted state matches the live element.
         clone.querySelectorAll('video').forEach((v) => {
           const peer = (v.closest('[data-peer]') as HTMLElement)?.dataset.peer;
           if (!peer) return;
           const orig = videoGrid.querySelector<HTMLVideoElement>(`[data-peer="${cssEsc(peer)}"] video`);
           if (orig?.srcObject) {
+            v.muted = orig.muted;
             v.srcObject = orig.srcObject;
-            void (v as HTMLVideoElement).play().catch(() => {});
+            void v.play().catch(() => {});
           }
         });
       }
