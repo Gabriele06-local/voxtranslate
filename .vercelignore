@@ -1,0 +1,4 @@
+server/
+.claude/
+CLAUDE_CODE_PROMPT.md
+CLAUDE_CODE_PROMPT_V2.md
