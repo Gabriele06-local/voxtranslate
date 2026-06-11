@@ -19,9 +19,11 @@ use rust_decimal::Decimal;
 
 use chrono::{DateTime, Utc};
 
+use crate::ai::email_draft as ai_email;
 use crate::ai::report as ai_report;
 use crate::ai::sentiment as ai_sentiment;
 use crate::billing::{usd, BillingError};
+use crate::email::OutboundEmail;
 use crate::glossary::{import_csv, normalize_entries, NewEntry, RoomGlossary};
 use crate::middleware::AuthUser;
 use crate::protocol::ServerMessage;
@@ -507,12 +509,8 @@ async fn subtitles_response(
             .unwrap_or_else(|| "en".to_string()),
     };
 
-    let cues = crate::subtitles::compute_cues(
-        &export.events,
-        export.session.started_at,
-        mode,
-        &target,
-    );
+    let cues =
+        crate::subtitles::compute_cues(&export.events, export.session.started_at, mode, &target);
     let (body, content_type, ext) = match format {
         SubtitleFormat::Srt => (
             crate::subtitles::build_srt(&cues),
@@ -790,7 +788,10 @@ pub async fn glossary_save(
         Ok(e) => e,
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
-    match svc.save(&room, name.as_deref(), &entries, user.user_id).await {
+    match svc
+        .save(&room, name.as_deref(), &entries, user.user_id)
+        .await
+    {
         Ok(g) => {
             broadcast_glossary(&state, &room, &g);
             glossary_response(&g, svc.max_entries())
@@ -873,7 +874,10 @@ pub async fn glossary_import(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
     let name = existing.name.clone();
-    match svc.save(&room, name.as_deref(), &entries, user.user_id).await {
+    match svc
+        .save(&room, name.as_deref(), &entries, user.user_id)
+        .await
+    {
         Ok(g) => {
             broadcast_glossary(&state, &room, &g);
             glossary_response(&g, svc.max_entries())
@@ -1281,6 +1285,452 @@ pub async fn sentiment_latest(
         Ok(None) => (StatusCode::NOT_FOUND, "no sentiment analysis yet").into_response(),
         Err(e) => {
             tracing::error!("sentiment load failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// ---- Follow-up email (spec 0016) ---------------------------------------------
+
+#[derive(Deserialize)]
+pub struct EmailDraftRequest {
+    pub recipients: Vec<ai_email::RecipientRef>,
+    /// `professional` (default) | `friendly` | `concise` — whitelisted so it
+    /// can sit in a prompt directive slot.
+    pub tone: Option<String>,
+    /// Free-text steering for the model, ≤ 2000 chars.
+    pub guidelines: Option<String>,
+    /// Email language; default = the requester's own participant language.
+    pub lang: Option<String>,
+    /// Lead with the stored report's executive summary (default true).
+    pub include_summary: Option<bool>,
+}
+
+/// An [`EmailRow`](ai_email::EmailRow) as the client sees it. Never exposes
+/// `body_html` (rebuilt from edited text at send time) or recipient `user_id`s
+/// — and stored raw addresses only ever reach their owner (`latest_email` is
+/// owner-scoped).
+fn email_json(row: &ai_email::EmailRow, cost: Option<Decimal>) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "id": row.id,
+        "status": row.status,
+        "subject": row.subject,
+        "body_text": row.body_text,
+        "recipients": ai_email::sanitize_recipients(&row.recipients),
+        "tone": row.tone,
+        "guidelines": row.guidelines,
+        "lang": row.lang,
+        "resend_id": row.resend_id,
+        "sent_at": row.sent_at,
+        "created_at": row.created_at,
+    });
+    if let Some(c) = cost {
+        v["cost"] = serde_json::json!(c.to_f64().unwrap_or(0.0));
+    }
+    v
+}
+
+/// `POST /api/sessions/{id}/email-draft` — generate a follow-up email draft
+/// (charged flat `CREDITS_EMAIL_DRAFT`). Same user-favorable failure policy as
+/// the report: Groq fail → 502 unchanged; InsufficientFunds at the gate → 402
+/// withheld; our own deduct/insert errors never charge-or-lose paid output.
+pub async fn email_draft_generate(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<EmailDraftRequest>,
+) -> Response {
+    let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
+        state.transcripts.as_ref(),
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return service_unavailable();
+    };
+    if state.resend.is_none() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response();
+    }
+    let ai = &cfg.ai;
+
+    let tone = match body.tone.as_deref() {
+        None => None,
+        Some(t @ ("professional" | "friendly" | "concise")) => Some(t),
+        Some(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "tone must be professional, friendly or concise",
+            )
+                .into_response()
+        }
+    };
+    let guidelines = match body.guidelines.as_deref().map(str::trim) {
+        Some(g) if g.chars().count() > 2000 => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "guidelines too long (max 2000 chars)",
+            )
+                .into_response()
+        }
+        Some(g) if !g.is_empty() => Some(g.to_string()),
+        _ => None,
+    };
+
+    // Barrier so a draft requested right after leaving sees the final events.
+    svc.flush().await;
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+
+    // Email language: explicit param > requester's participant lang > en.
+    let lang = match body.lang.as_deref().map(str::trim) {
+        Some(l) if !l.is_empty() => {
+            if l.len() > 8 || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                return (StatusCode::BAD_REQUEST, "invalid lang").into_response();
+            }
+            l.to_string()
+        }
+        _ => svc
+            .participant_lang(session_id, user.user_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "en".to_string()),
+    };
+
+    // Resolve recipient refs against the session roster (guests rejected,
+    // dupes collapsed). user_ids land in the stored JSONB — never in responses.
+    let participants = match ai_email::session_participants(pool, session_id).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("participant load failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    let recipients = match ai_email::resolve_recipients(&body.recipients, &participants) {
+        Ok(r) => r,
+        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+    };
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        // Purged between the access check and here (guest-only finalize race).
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if export.events.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "session has no transcript to draft from",
+        )
+            .into_response();
+    }
+
+    let cost = ai_email::email_cost(ai);
+
+    // Advisory pre-check: fail fast before burning an expensive Groq call.
+    // The atomic deduct below remains the real gate.
+    match billing.get_balance(user.user_id).await {
+        Ok(b) if b < cost => return insufficient_credits("ai_email", cost, b),
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("balance check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    // Reuse the stored report's executive summary when available — better
+    // grounding for free (no extra model call).
+    let summary = if body.include_summary.unwrap_or(true) {
+        match ai_report::latest_report(pool, session_id).await {
+            Ok(Some(r)) => ai_email::extract_exec_summary(&r.markdown),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!("report lookup for email summary failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let (draft, model) = match ai_email::generate_draft(
+        &state.groq,
+        ai,
+        &export,
+        summary.as_deref(),
+        tone,
+        &lang,
+        guidelines.as_deref(),
+    )
+    .await
+    {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::error!("email draft failed: {e}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                "email draft failed — you were not charged",
+            )
+                .into_response();
+        }
+    };
+
+    let balance = match billing
+        .deduct_feature(
+            user.user_id,
+            Some(session_id),
+            "ai_email",
+            cost,
+            &format!("Follow-up email draft — room {}", export.session.room_name),
+            serde_json::json!({ "model": model, "tone": tone }),
+        )
+        .await
+    {
+        Ok(b) => Some(b),
+        // Charging after delivery would make 402-then-retry a free path, so
+        // a genuine InsufficientFunds at the gate withholds the result.
+        Err(BillingError::InsufficientFunds) => {
+            let available = billing
+                .get_balance(user.user_id)
+                .await
+                .unwrap_or(Decimal::ZERO);
+            return insufficient_credits("ai_email", cost, available);
+        }
+        // Any other failure is ours, not the user's: deliver free and log.
+        Err(e) => {
+            tracing::error!("ai_email deduction failed AFTER generation — delivering free: {e}");
+            None
+        }
+    };
+
+    match ai_email::save_email(
+        pool,
+        session_id,
+        user.user_id,
+        &draft,
+        &recipients,
+        tone,
+        guidelines.as_deref(),
+        &lang,
+    )
+    .await
+    {
+        Ok(row) => {
+            let mut v = email_json(&row, Some(cost));
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+        Err(e) => {
+            // Charged but couldn't persist — deliver the draft anyway (it just
+            // can't be sent: no id). The user keeps the text they paid for.
+            tracing::error!("email insert failed after charge: {e}");
+            let mut v = serde_json::json!({
+                "status": "draft",
+                "subject": draft.subject,
+                "body_text": draft.body_text,
+                "recipients": ai_email::sanitize_recipients(&recipients),
+                "tone": tone,
+                "guidelines": guidelines,
+                "lang": lang,
+                "cost": cost.to_f64().unwrap_or(0.0),
+            });
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct EmailSendRequest {
+    pub email_id: Uuid,
+    /// Pre-send edits; omitted fields keep the stored draft values.
+    pub subject: Option<String>,
+    pub body_text: Option<String>,
+}
+
+/// `POST /api/sessions/{id}/email-send` — send a draft through Resend. Free
+/// (the charge was the draft). Owner-only; participant user_ids resolve to
+/// addresses HERE, server-side only — they never appear in any response.
+pub async fn email_send(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<EmailSendRequest>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    let Some(resend) = state.resend.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+
+    let row = match ai_email::get_email(pool, session_id, body.email_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such draft").into_response(),
+        Err(e) => {
+            tracing::error!("email load failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if row.user_id != user.user_id {
+        return (StatusCode::FORBIDDEN, "not your draft").into_response();
+    }
+    if row.status == "sent" {
+        return (StatusCode::CONFLICT, "already sent").into_response();
+    }
+
+    // Apply pre-send edits; body_html is rebuilt from the edited text so the
+    // two parts can't drift apart.
+    let subject = match body.subject.as_deref().map(str::trim) {
+        None => row.subject.clone(),
+        Some("") => return (StatusCode::BAD_REQUEST, "subject cannot be empty").into_response(),
+        Some(s) if s.chars().count() > 200 => {
+            return (StatusCode::BAD_REQUEST, "subject too long (max 200 chars)").into_response()
+        }
+        Some(s) => s.to_string(),
+    };
+    let (body_text, body_html) = match body.body_text.as_deref().map(str::trim) {
+        None => (row.body_text.clone(), row.body_html.clone()),
+        Some("") => return (StatusCode::BAD_REQUEST, "body cannot be empty").into_response(),
+        Some(t) if t.chars().count() > 20_000 => {
+            return (StatusCode::BAD_REQUEST, "body too long (max 20000 chars)").into_response()
+        }
+        Some(t) => (t.to_string(), ai_email::text_to_html(t)),
+    };
+    // Persist edits BEFORE the send attempt: a failed send keeps the edited
+    // draft, not the stale one.
+    if body.subject.is_some() || body.body_text.is_some() {
+        if let Err(e) = ai_email::update_draft(pool, row.id, &subject, &body_html, &body_text).await
+        {
+            tracing::error!("email edit persist failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    // Resolve stored recipient refs to addresses — server-side only.
+    let mut to_ids: Vec<Uuid> = Vec::new();
+    let mut cc_ids: Vec<Uuid> = Vec::new();
+    let mut to: Vec<String> = Vec::new();
+    let mut cc: Vec<String> = Vec::new();
+    for r in row.recipients.as_array().map(Vec::as_slice).unwrap_or(&[]) {
+        let is_cc = r["cc"].as_bool().unwrap_or(false);
+        if r["kind"] == "participant" {
+            if let Some(uid) = r["user_id"].as_str().and_then(|s| Uuid::parse_str(s).ok()) {
+                if is_cc {
+                    cc_ids.push(uid);
+                } else {
+                    to_ids.push(uid);
+                }
+            }
+        } else if let Some(e) = r["email"].as_str() {
+            if is_cc {
+                cc.push(e.to_string());
+            } else {
+                to.push(e.to_string());
+            }
+        }
+    }
+    let all_ids: Vec<Uuid> = to_ids.iter().chain(&cc_ids).copied().collect();
+    if !all_ids.is_empty() {
+        let rows: Vec<(Uuid, String)> =
+            match sqlx::query_as("SELECT id, email FROM users WHERE id = ANY($1)")
+                .bind(&all_ids)
+                .fetch_all(pool)
+                .await
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    tracing::error!("recipient email lookup failed: {e}");
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+                }
+            };
+        let lookup: std::collections::HashMap<Uuid, String> = rows.into_iter().collect();
+        for uid in &to_ids {
+            match lookup.get(uid) {
+                Some(e) => to.push(e.clone()),
+                None => tracing::warn!("email recipient {uid} no longer exists — skipped"),
+            }
+        }
+        for uid in &cc_ids {
+            match lookup.get(uid) {
+                Some(e) => cc.push(e.clone()),
+                None => tracing::warn!("email cc recipient {uid} no longer exists — skipped"),
+            }
+        }
+    }
+    if to.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "no deliverable recipients",
+        )
+            .into_response();
+    }
+
+    let email = OutboundEmail {
+        to,
+        cc,
+        subject,
+        html: body_html,
+        text: body_text,
+    };
+    match resend.send(&email).await {
+        Ok(resend_id) => {
+            // The mail is out either way — a failed status flip must not turn
+            // a delivered email into a user-facing error (or a re-send).
+            if let Err(e) = ai_email::mark_sent(pool, row.id, &resend_id).await {
+                tracing::error!("mark_sent failed for {} AFTER delivery: {e}", row.id);
+            }
+            Json(serde_json::json!({
+                "id": row.id,
+                "status": "sent",
+                "resend_id": resend_id,
+                "sent_at": Utc::now(),
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!("resend send failed: {e}");
+            (
+                StatusCode::BAD_GATEWAY,
+                "email send failed — the draft was kept",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `GET /api/sessions/{id}/email` — the requester's own latest draft/sent
+/// email. Owner-scoped: drafts can hold raw addresses the requester typed.
+pub async fn email_latest(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    if state.resend.is_none() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response();
+    }
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match ai_email::latest_email(pool, session_id, user.user_id).await {
+        Ok(Some(row)) => Json(email_json(&row, None)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no email draft yet").into_response(),
+        Err(e) => {
+            tracing::error!("email load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }

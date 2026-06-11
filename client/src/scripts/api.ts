@@ -370,6 +370,125 @@ export async function generateSentiment(sessionId: string): Promise<AiSentimentR
   }
 }
 
+// ---- Follow-up email (REST under /api/sessions/{id}/email*) -----------------
+
+/** A recipient as the composer sends it (mirrors the server enum). */
+export type RecipientRef =
+  | { kind: 'participant'; peer_id: string; cc?: boolean }
+  | { kind: 'email'; email: string; cc?: boolean };
+
+/** A recipient as the server echoes it back — never a user id or another
+ *  participant's address (only raw addresses the requester typed echo). */
+export type EmailRecipient =
+  | { kind: 'participant'; name: string; cc: boolean }
+  | { kind: 'email'; email: string; cc: boolean };
+
+export interface AiEmail {
+  /** Absent when the server delivered an unsaved draft (insert failed) — it
+   *  can be read but not sent. */
+  id?: string;
+  status: 'draft' | 'sent' | 'failed' | string;
+  subject: string;
+  body_text: string;
+  recipients: EmailRecipient[];
+  tone?: string | null;
+  guidelines?: string | null;
+  lang?: string | null;
+  resend_id?: string | null;
+  sent_at?: string | null;
+  created_at?: string;
+  cost?: number;
+  /** New balance after the charge; absent on GET and on free delivery. */
+  balance?: number;
+}
+
+/** Generation outcome: exactly one of the three fields is meaningful. */
+export interface AiEmailResult {
+  email: AiEmail | null;
+  insufficient: InsufficientCredits | null;
+  error: string;
+}
+
+const emailUrl = (sessionId: string, tail: string) =>
+  `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/${tail}`;
+
+/** The requester's own latest draft/sent email; null when none / 403 / network. */
+export async function fetchLatestEmail(sessionId: string): Promise<AiEmail | null> {
+  try {
+    const res = await fetch(emailUrl(sessionId, 'email'), { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as AiEmail;
+  } catch {
+    return null;
+  }
+}
+
+/** Generate (and charge for) a follow-up email draft. */
+export async function generateEmailDraft(
+  sessionId: string,
+  opts: {
+    recipients: RecipientRef[];
+    tone: string;
+    guidelines: string;
+    lang: string;
+    includeSummary: boolean;
+  },
+): Promise<AiEmailResult> {
+  try {
+    const res = await fetch(emailUrl(sessionId, 'email-draft'), {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipients: opts.recipients,
+        tone: opts.tone,
+        guidelines: opts.guidelines.trim() || null,
+        lang: opts.lang,
+        include_summary: opts.includeSummary,
+      }),
+    });
+    if (res.status === 402) {
+      return { email: null, insufficient: await parseInsufficient(res), error: '' };
+    }
+    if (!res.ok) return { email: null, insufficient: null, error: await res.text() };
+    return { email: (await res.json()) as AiEmail, insufficient: null, error: '' };
+  } catch {
+    return { email: null, insufficient: null, error: '' };
+  }
+}
+
+/** What a successful send returns. */
+export interface EmailSent {
+  id: string;
+  status: 'sent';
+  resend_id: string;
+  sent_at: string;
+}
+
+/** Send outcome: `sent` on success, else the server's error text ('' = network). */
+export interface EmailSendResult {
+  sent: EmailSent | null;
+  error: string;
+}
+
+/** Send a draft (free). Edited subject/body travel with the request. */
+export async function sendEmail(
+  sessionId: string,
+  emailId: string,
+  edits: { subject?: string; body_text?: string } = {},
+): Promise<EmailSendResult> {
+  try {
+    const res = await fetch(emailUrl(sessionId, 'email-send'), {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_id: emailId, ...edits }),
+    });
+    if (!res.ok) return { sent: null, error: await res.text() };
+    return { sent: (await res.json()) as EmailSent, error: '' };
+  } catch {
+    return { sent: null, error: '' };
+  }
+}
+
 // ---- Shared error shape ------------------------------------------------------
 
 /** The 402 body every credit-charged AI endpoint returns on insufficient funds. */

@@ -80,7 +80,9 @@ pub fn normalize_entries(raw: Vec<NewEntry>, max: usize) -> Result<Vec<NewEntry>
             return Err(format!("entry {n}: language code too long"));
         }
         if e.source_lang == e.target_lang {
-            return Err(format!("entry {n}: source and target language are the same"));
+            return Err(format!(
+                "entry {n}: source and target language are the same"
+            ));
         }
         if e.source_term.is_empty() || e.target_term.is_empty() {
             return Err(format!("entry {n}: empty term"));
@@ -451,8 +453,10 @@ mod tests {
         assert!(import_csv("").unwrap().is_empty());
         assert!(import_csv("\n  \n").unwrap().is_empty());
         // A header-only file is empty as well.
-        assert!(import_csv("source_lang,target_lang,source_term,target_term")
-            .unwrap()
-            .is_empty());
+        assert!(
+            import_csv("source_lang,target_lang,source_term,target_term")
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -594,6 +594,40 @@ const LANGS = [
     /* Key-moment jump target flash in the transcript viewer. */
     .session-transcript :global(.tr-flash) { background: var(--accent-soft, rgba(59, 130, 246, 0.18)); transition: background 0.4s; }
 
+    /* ---------- Follow-up email (spec 0016; DOM created in JS) ---------- */
+    #session-ai :global(.ai-email-chips) { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    #session-ai :global(.ai-chip) {
+      display: inline-flex; align-items: center; min-height: 36px; padding: 4px 14px;
+      border: 1px solid var(--border); border-radius: 999px;
+      background: var(--surface); color: var(--text); cursor: pointer;
+      font: inherit; font-size: 0.84rem;
+    }
+    #session-ai :global(.ai-chip[aria-pressed='true']) { border-color: var(--accent); color: var(--accent); }
+    #session-ai :global(.ai-chip.removable) { color: var(--muted); }
+    #session-ai :global(.ai-chip.removable:hover) { border-color: var(--danger); color: var(--danger); }
+    #session-ai :global(.ai-email-input) {
+      flex: 1; min-width: 170px; min-height: 36px; padding: 0 12px; border-radius: 999px;
+      background: var(--surface); color: var(--text); border: 1px dashed var(--border);
+      font: inherit; font-size: 0.84rem;
+    }
+    #session-ai :global(.ai-email-input.invalid) { border-color: var(--danger); }
+    #session-ai :global(.ai-check) {
+      display: flex; align-items: center; gap: 8px; min-height: 28px;
+      font-size: 0.85rem; cursor: pointer;
+    }
+    #session-ai :global(.ai-email-rcpts) { margin: 0; font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+    #session-ai :global(.ai-email-subject) {
+      width: 100%; min-height: 44px; padding: 0 12px; border-radius: 8px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      font: inherit; font-size: 0.9rem; font-weight: 700;
+    }
+    #session-ai :global(.ai-email-body) {
+      width: 100%; resize: vertical; min-height: 180px; padding: 10px 12px; border-radius: 8px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      font: inherit; font-size: 0.88rem; line-height: 1.5;
+    }
+    #session-ai :global(.ai-email-subject[readonly]), #session-ai :global(.ai-email-body[readonly]) { opacity: 0.75; }
+
     /* ---------- Pre-join ---------- */
     #prejoin { align-items: center; justify-content: center; padding: 20px; }
     .prejoin-card { width: 100%; max-width: 460px; }

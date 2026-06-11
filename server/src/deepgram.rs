@@ -94,7 +94,10 @@ pub async fn detect_language(
 ) -> Result<(String, Option<f64>), String> {
     let resp = http
         .post("https://api.deepgram.com/v1/listen?detect_language=true&model=nova-2")
-        .header(reqwest::header::AUTHORIZATION, format!("Token {}", config.deepgram_key))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Token {}", config.deepgram_key),
+        )
         .header(reqwest::header::CONTENT_TYPE, "audio/webm")
         .timeout(Duration::from_secs(10))
         .body(webm)

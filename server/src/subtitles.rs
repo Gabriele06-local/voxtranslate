@@ -84,11 +84,7 @@ pub fn compute_cues(
         let start = starts[i];
         let window_chars = match mode {
             LangMode::Original => original.chars().count(),
-            LangMode::Translated => translated
-                .as_deref()
-                .unwrap_or(&original)
-                .chars()
-                .count(),
+            LangMode::Translated => translated.as_deref().unwrap_or(&original).chars().count(),
             LangMode::Both => {
                 original.chars().count() + translated.as_deref().map_or(0, |t| t.chars().count())
             }
@@ -127,7 +123,11 @@ pub fn compute_cues(
                     acc += chunk_chars(chunk);
                     let last = ci == chunks.len() - 1;
                     // Proportional boundary; the last chunk closes the window.
-                    let boundary = if last { end } else { start + span * acc / total.max(1) };
+                    let boundary = if last {
+                        end
+                    } else {
+                        start + span * acc / total.max(1)
+                    };
                     let c_end = if last {
                         boundary
                     } else {
@@ -153,7 +153,11 @@ fn normalize(text: &str) -> String {
 }
 
 fn chunk_chars(lines: &[String]) -> i64 {
-    lines.iter().map(|l| l.chars().count() as i64).sum::<i64>().max(1)
+    lines
+        .iter()
+        .map(|l| l.chars().count() as i64)
+        .sum::<i64>()
+        .max(1)
 }
 
 /// Greedy word-wrap into lines of at most `width` chars; words longer than
@@ -257,7 +261,9 @@ fn timestamp(ms: i64, sep: char) -> String {
 /// Escape VTT cue-text metacharacters (speaker names and spoken text are
 /// user-controlled — a literal `>` would break out of the `<v>` tag).
 fn escape_vtt(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[cfg(test)]
@@ -319,14 +325,20 @@ mod tests {
     #[test]
     fn crowded_events_keep_100ms_gap() {
         // Long first text (reading time 4 s) but the next event lands at 2 s.
-        let events = vec![ev(0, "en", &"a ".repeat(30), &[]), ev(2_000, "en", "Next.", &[])];
+        let events = vec![
+            ev(0, "en", &"a ".repeat(30), &[]),
+            ev(2_000, "en", "Next.", &[]),
+        ];
         let cues = compute_cues(&events, t0(), LangMode::Original, "it");
         let first_end = cues[..cues.len() - 1]
             .iter()
             .map(|c| c.end_ms)
             .max()
             .unwrap();
-        assert!(first_end <= 1_900, "first event ends 100ms before the next: {first_end}");
+        assert!(
+            first_end <= 1_900,
+            "first event ends 100ms before the next: {first_end}"
+        );
         assert_eq!(cues.last().unwrap().start_ms, 2_000);
     }
 
@@ -389,7 +401,11 @@ mod tests {
         ];
         let cues = compute_cues(&events, t0(), LangMode::Translated, "it");
         assert_eq!(cues[0].lines, vec!["Ciao mondo."]);
-        assert_eq!(cues[1].lines, vec!["Va bene."], "falls back to the original");
+        assert_eq!(
+            cues[1].lines,
+            vec!["Va bene."],
+            "falls back to the original"
+        );
     }
 
     #[test]

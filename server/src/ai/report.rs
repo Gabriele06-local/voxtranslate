@@ -16,13 +16,19 @@ use crate::transcripts::TranscriptExport;
 
 /// User-facing cost: `CREDITS_REPORT_BASE + CREDITS_REPORT_PER_MINUTE × ⌈min⌉`.
 pub fn report_cost(ai: &AiConfig, duration_seconds: i64) -> Decimal {
-    (usd(ai.report_base) + usd(ai.report_per_minute) * Decimal::from(billed_minutes(duration_seconds)))
-        .round_dp(6)
+    (usd(ai.report_base)
+        + usd(ai.report_per_minute) * Decimal::from(billed_minutes(duration_seconds)))
+    .round_dp(6)
 }
 
 /// Build the report system prompt. Pure, for tests. User guidelines are passed
 /// as data with explicit precedence rules, never interpolated into directives.
-pub fn report_prompt(format: &str, lang: &str, guidelines: Option<&str>, has_bookmarks: bool) -> String {
+pub fn report_prompt(
+    format: &str,
+    lang: &str,
+    guidelines: Option<&str>,
+    has_bookmarks: bool,
+) -> String {
     let mut system = String::from(
         "You write post-meeting reports from call transcripts. The transcript lines are \
          `[HH:MM:SS] Speaker (lang): text`; `[chat]` marks text-chat messages. \
@@ -95,7 +101,9 @@ pub async fn generate_report(
         // the wait for the same outcome.
         Err(e) if e.contains("groq returned 4") && ai.fallback_model != ai.report_model => {
             tracing::warn!("report model failed ({e}); retrying on fallback model");
-            groq.chat(fallback_req).await.map(|md| (md, ai.fallback_model.clone()))
+            groq.chat(fallback_req)
+                .await
+                .map(|md| (md, ai.fallback_model.clone()))
         }
         Err(e) => Err(e),
     }
@@ -146,7 +154,10 @@ pub async fn save_report(
 }
 
 /// Latest report for a session (any participant can read it).
-pub async fn latest_report(pool: &Pool, session_id: Uuid) -> Result<Option<ReportRow>, sqlx::Error> {
+pub async fn latest_report(
+    pool: &Pool,
+    session_id: Uuid,
+) -> Result<Option<ReportRow>, sqlx::Error> {
     sqlx::query_as(
         "SELECT id, format, lang, guidelines, markdown, model, cost, created_at
          FROM session_reports WHERE session_id = $1

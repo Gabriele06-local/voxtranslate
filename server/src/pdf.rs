@@ -281,7 +281,10 @@ mod tests {
     #[test]
     fn bookmarks_interleave_as_marker_rows() {
         let base = Utc.with_ymd_and_hms(2026, 6, 10, 12, 0, 0).unwrap();
-        let mut doc = export("review", vec![event("speech", 0, "important point", "en", 5)]);
+        let mut doc = export(
+            "review",
+            vec![event("speech", 0, "important point", "en", 5)],
+        );
         doc.bookmarks = vec![
             ExportBookmark {
                 ts: base + Duration::seconds(6),

@@ -164,7 +164,10 @@ pub fn aggregate(
         }
     }
 
-    let scores: Vec<f64> = timeline.iter().filter_map(|p| p["score"].as_f64()).collect();
+    let scores: Vec<f64> = timeline
+        .iter()
+        .filter_map(|p| p["score"].as_f64())
+        .collect();
     let mean = if scores.is_empty() {
         0.0
     } else {
@@ -184,9 +187,9 @@ pub fn aggregate(
     let speakers: Vec<serde_json::Value> = talk_share(export)
         .into_iter()
         .map(|(name, pct)| {
-            let avg = speaker_scores.get(&name).map(|v| {
-                round2(v.iter().sum::<f64>() / v.len() as f64)
-            });
+            let avg = speaker_scores
+                .get(&name)
+                .map(|v| round2(v.iter().sum::<f64>() / v.len() as f64));
             serde_json::json!({
                 "name": name,
                 "talk_pct": pct,
@@ -220,7 +223,11 @@ pub fn aggregate(
 
 /// Owned args so the futures built for `buffered()` capture no borrows —
 /// borrowed closures here break axum's `Handler` inference upstream.
-async fn analyze_chunk(groq: Groq, model: String, text: String) -> Result<serde_json::Value, String> {
+async fn analyze_chunk(
+    groq: Groq,
+    model: String,
+    text: String,
+) -> Result<serde_json::Value, String> {
     let mut req = ChatRequest::new(model, chunk_prompt(), text);
     req.max_tokens = 256;
     req.timeout = Duration::from_secs(20);
@@ -268,8 +275,10 @@ pub async fn analyze(
             async move { (t, analyze_chunk(groq, model, text).await) }
         })
         .collect();
-    let rest_results: Vec<(i64, Result<serde_json::Value, String>)> =
-        futures::stream::iter(futs).buffered(CONCURRENCY).collect().await;
+    let rest_results: Vec<(i64, Result<serde_json::Value, String>)> = futures::stream::iter(futs)
+        .buffered(CONCURRENCY)
+        .collect()
+        .await;
     for (t, res) in rest_results {
         match res {
             Ok(v) => points.push((t, v)),
@@ -335,9 +344,7 @@ pub async fn get_sentiment(
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::transcripts::{
-        ExportEvent, ExportParticipant, ExportSession, TranscriptExport,
-    };
+    use crate::transcripts::{ExportEvent, ExportParticipant, ExportSession, TranscriptExport};
     use chrono::Duration as ChronoDuration;
     use std::collections::HashMap;
 
@@ -427,8 +434,8 @@ mod tests {
     #[test]
     fn talk_share_counts_speech_only_and_includes_silent_participants() {
         let mut export = export_with(vec![
-            ("Anna", "speech", 0, "123456"),  // 6 chars
-            ("Bob", "speech", 10, "12"),      // 2 chars
+            ("Anna", "speech", 0, "123456"), // 6 chars
+            ("Bob", "speech", 10, "12"),     // 2 chars
             ("Bob", "chat", 20, "ignored chat wall of text"),
         ]);
         export.session.participants.push(ExportParticipant {

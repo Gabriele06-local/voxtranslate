@@ -15,6 +15,7 @@ pub mod config;
 pub mod content;
 pub mod db;
 pub mod deepgram;
+pub mod email;
 pub mod glossary;
 pub mod groq;
 pub mod middleware;
@@ -81,6 +82,8 @@ pub struct AppState {
     pub transcripts: Option<TranscriptService>,
     /// Room glossaries (spec 0011) — `Some` only when the database is configured.
     pub glossary: Option<GlossaryService>,
+    /// Resend email client (spec 0016) — `Some` only when RESEND_* is configured.
+    pub resend: Option<email::Resend>,
     /// Verifies Google credentials (swappable for tests).
     pub verifier: Arc<dyn TokenVerifier>,
     /// Shared HTTP client (Google tokeninfo, Stripe).
@@ -106,6 +109,10 @@ impl AppState {
             .unwrap_or_default();
         let verifier: Arc<dyn TokenVerifier> =
             Arc::new(GoogleVerifier::new(client_id, http.clone()));
+        let resend = config
+            .resend
+            .as_ref()
+            .map(|c| email::Resend::new(http.clone(), c));
         Self {
             config: Arc::new(config),
             rooms: Arc::new(RoomManager::new()),
@@ -116,6 +123,7 @@ impl AppState {
             safety: None,
             transcripts: None,
             glossary: None,
+            resend,
             verifier,
             http,
             rate_limiter: Arc::new(RateLimiter::new()),
@@ -197,6 +205,12 @@ pub fn app(state: AppState) -> Router {
             "/api/sessions/{id}/sentiment",
             get(api::sentiment_latest).post(api::sentiment_generate),
         )
+        .route(
+            "/api/sessions/{id}/email-draft",
+            post(api::email_draft_generate),
+        )
+        .route("/api/sessions/{id}/email-send", post(api::email_send))
+        .route("/api/sessions/{id}/email", get(api::email_latest))
         .route(
             "/api/sessions/{id}/bookmarks",
             get(api::bookmarks_list).post(api::bookmark_add),

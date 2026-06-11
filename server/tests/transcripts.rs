@@ -15,7 +15,7 @@ use futures::{SinkExt, StreamExt};
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
 use voxtranslate_server::billing::{usd, BillingService};
-use voxtranslate_server::config::Config;
+use voxtranslate_server::config::{Config, ResendConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::safety::SafetyService;
 use voxtranslate_server::transcripts::{EventKind, TranscriptEvent, TranscriptService};
@@ -30,11 +30,25 @@ struct Server {
 /// Spawn a billing-mode server with the transcript service wired (unlike
 /// `tests/billing.rs`, which predates transcripts and leaves it `None`).
 async fn setup() -> Option<Server> {
+    setup_opts(false).await
+}
+
+/// Like [`setup`], optionally wiring a (dummy-key) Resend config so the email
+/// endpoints pass their 503 feature gate. The key is fake: a real send dies at
+/// Resend's 401, which is exactly what the failure-path tests want.
+async fn setup_opts(with_resend: bool) -> Option<Server> {
     let url = std::env::var("DATABASE_URL").ok()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let secret = "transcripts-secret".to_string();
-    let config = Config::test_with_billing(&url, &secret, 2.0);
+    let mut config = Config::test_with_billing(&url, &secret, 2.0);
+    if with_resend {
+        config.resend = Some(ResendConfig {
+            api_key: "dummy".into(),
+            from_email: "noreply@example.com".into(),
+            from_name: "VoxTranslate".into(),
+        });
+    }
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
     let mut state = AppState::new(config);
     state.billing = Some(BillingService::new(pool.clone(), min_join));
@@ -372,7 +386,10 @@ async fn subtitles_download_as_srt_and_vtt() {
     assert!(body.starts_with("1\n"), "{body}");
     assert!(body.contains("Tess: Ciao mondo."), "{body}");
     assert!(body.contains(" --> "), "{body}");
-    assert!(!body.contains("off the record"), "chat must be skipped: {body}");
+    assert!(
+        !body.contains("off the record"),
+        "chat must be skipped: {body}"
+    );
 
     // VTT, original mode: voice tag + original text.
     let vtt = http
@@ -779,7 +796,11 @@ async fn ai_report_validation_billing_and_persistence() {
         .unwrap();
     assert_eq!(failed.status(), 502);
     assert!(failed.text().await.unwrap().contains("not charged"));
-    assert_eq!(balance_of(uid).await, usd(2.0), "Groq failure never charges");
+    assert_eq!(
+        balance_of(uid).await,
+        usd(2.0),
+        "Groq failure never charges"
+    );
     let charged: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM credit_transactions WHERE user_id = $1 AND kind = 'ai_report'",
     )
@@ -816,7 +837,10 @@ async fn ai_report_validation_billing_and_persistence() {
     assert_eq!(report["format"], "structured");
     assert_eq!(report["lang"], "it");
     assert_eq!(report["guidelines"], "focus on decisions");
-    assert_eq!(report["markdown"], "## Executive Summary\n\nShip on Friday.");
+    assert_eq!(
+        report["markdown"],
+        "## Executive Summary\n\nShip on Friday."
+    );
     assert_eq!(report["model"], "model-x");
     assert!(report["cost"].is_number(), "cost is f64 in JSON: {report}");
     assert!((report["cost"].as_f64().unwrap() - 0.052).abs() < 1e-9);
@@ -848,13 +872,12 @@ async fn ai_report_validation_billing_and_persistence() {
     assert_eq!(latest["markdown"], "A second take.");
     assert_eq!(latest["format"], "freeform");
     assert!(latest["guidelines"].is_null());
-    let kept: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM session_reports WHERE session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
+    let kept: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM session_reports WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(kept, 2, "regenerate appends, never overwrites");
 }
 
@@ -990,13 +1013,15 @@ async fn sentiment_cache_billing_and_gates() {
         assert!(v["cost"].is_number(), "cost is f64 in JSON: {v}");
         assert!(v.get("balance").is_none(), "no charge -> no balance echo");
     }
-    let charged: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM credit_transactions WHERE kind = 'ai_sentiment'",
-    )
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
-    assert_eq!(charged, 0, "cache hits and failures never write ledger rows");
+    let charged: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM credit_transactions WHERE kind = 'ai_sentiment'")
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        charged, 0,
+        "cache hits and failures never write ledger rows"
+    );
 
     // GET mirrors the cached POST.
     let got: serde_json::Value = http
@@ -1010,6 +1035,343 @@ async fn sentiment_cache_billing_and_gates() {
         .unwrap();
     assert_eq!(got["result"]["timeline"][0]["score"], 0.6);
     assert_eq!(got["cached"], true);
+}
+
+/// Follow-up email (spec 0016): the 503 feature gate, auth gates, recipient
+/// validation 400s, the 402 pre-check, no-charge-on-Groq-failure, recipient
+/// sanitization (user_ids and addresses never leak), owner-scoping, send gates
+/// (404/403/409), and the failed-send-keeps-edited-draft contract.
+#[tokio::test]
+async fn email_draft_send_gates_and_billing() {
+    // Without RESEND_* the feature is off: both POSTs 503.
+    if let Some(plain) = setup().await {
+        let (_uid, jwt) = login(&plain, "Tess").await;
+        let http = reqwest::Client::new();
+        let base = format!("http://{}", plain.addr);
+        let sid = Uuid::new_v4();
+        for (url, body) in [
+            (
+                format!("{base}/api/sessions/{sid}/email-draft"),
+                serde_json::json!({ "recipients": [] }),
+            ),
+            (
+                format!("{base}/api/sessions/{sid}/email-send"),
+                serde_json::json!({ "email_id": Uuid::new_v4() }),
+            ),
+        ] {
+            let resp = http
+                .post(&url)
+                .bearer_auth(&jwt)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 503, "email disabled -> 503 at {url}");
+        }
+    }
+
+    let Some(srv) = setup_opts(true).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (tess, tess_jwt) = login(&srv, "Tess").await; // $2.00 each
+    let (bob, bob_jwt) = login(&srv, "Bob").await;
+    let room = format!("em-{}", Uuid::new_v4().simple());
+    let session_id = Uuid::new_v4();
+
+    // Tess + Bob (accounts) + a guest share the session; one speech event.
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, &room).await.unwrap();
+    svc.participant_joined(session_id, "tess-peer", Some(tess), "Tess", "it")
+        .await
+        .unwrap();
+    svc.participant_joined(session_id, "bob-peer", Some(bob), "Bob", "en")
+        .await
+        .unwrap();
+    svc.participant_joined(session_id, "guest-peer", None, "Gio", "en")
+        .await
+        .unwrap();
+    svc.record(TranscriptEvent {
+        session_id,
+        kind: EventKind::Speech,
+        speaker_peer_id: "tess-peer".into(),
+        speaker_user_id: Some(tess),
+        speaker_name: "Tess".into(),
+        original_text: "Next steps agreed: ship Friday.".into(),
+        original_lang: "en".into(),
+        translations: HashMap::new(),
+        ts: chrono::Utc::now(),
+    });
+    svc.flush().await;
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+    let get_url = format!("{base}/api/sessions/{session_id}/email");
+    let draft_url = format!("{base}/api/sessions/{session_id}/email-draft");
+    let send_url = format!("{base}/api/sessions/{session_id}/email-send");
+
+    // GET gates: no token 401, stranger 403, unknown session 404, none yet 404.
+    assert_eq!(http.get(&get_url).send().await.unwrap().status(), 401);
+    let (_eve, eve_jwt) = login(&srv, "Eve").await;
+    let forbidden = http
+        .get(&get_url)
+        .bearer_auth(&eve_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+    let unknown = http
+        .get(format!("{base}/api/sessions/{}/email", Uuid::new_v4()))
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404);
+    let none_yet = http
+        .get(&get_url)
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(none_yet.status(), 404, "no draft yet");
+
+    // Draft validation 400s: empty recipients, invalid address, unknown peer,
+    // guest peer (no account email), oversized guidelines, bad tone.
+    for bad in [
+        serde_json::json!({ "recipients": [] }),
+        serde_json::json!({ "recipients": [ { "kind": "email", "email": "nope" } ] }),
+        serde_json::json!({ "recipients": [ { "kind": "participant", "peer_id": "ghost" } ] }),
+        serde_json::json!({ "recipients": [ { "kind": "participant", "peer_id": "guest-peer" } ] }),
+        serde_json::json!({
+            "recipients": [ { "kind": "participant", "peer_id": "bob-peer" } ],
+            "guidelines": "x".repeat(2001),
+        }),
+        serde_json::json!({
+            "recipients": [ { "kind": "participant", "peer_id": "bob-peer" } ],
+            "tone": "sarcastic",
+        }),
+    ] {
+        let resp = http
+            .post(&draft_url)
+            .bearer_auth(&tess_jwt)
+            .json(&bad)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400, "{bad}");
+    }
+
+    // An event-less session has nothing to draft from -> 422.
+    let empty_session = Uuid::new_v4();
+    svc.session_started(empty_session, &format!("ee-{room}"))
+        .await
+        .unwrap();
+    svc.participant_joined(empty_session, "tess-peer", Some(tess), "Tess", "it")
+        .await
+        .unwrap();
+    let empty = http
+        .post(format!("{base}/api/sessions/{empty_session}/email-draft"))
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({
+            "recipients": [ { "kind": "email", "email": "a@x.co" } ],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty.status(), 422);
+
+    // 402 pre-check: flat draft cost 0.02 > 0.001.
+    sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
+        .bind(tess)
+        .bind(usd(0.001))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let valid_body = serde_json::json!({
+        "recipients": [ { "kind": "participant", "peer_id": "bob-peer" } ],
+    });
+    let broke = http
+        .post(&draft_url)
+        .bearer_auth(&tess_jwt)
+        .json(&valid_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(broke.status(), 402);
+    let body: serde_json::Value = broke.json().await.unwrap();
+    assert_eq!(body["error"], "insufficient_credits");
+    assert_eq!(body["feature"], "ai_email");
+    assert!(
+        (body["required"].as_f64().unwrap() - 0.02).abs() < 1e-9,
+        "{body}"
+    );
+
+    // Groq-failure path: funds restored, generation dies (dummy Groq key)
+    // -> 502, balance untouched, no ledger row.
+    sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
+        .bind(tess)
+        .bind(usd(2.0))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let failed = http
+        .post(&draft_url)
+        .bearer_auth(&tess_jwt)
+        .json(&valid_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(failed.status(), 502);
+    assert!(failed.text().await.unwrap().contains("not charged"));
+    let balance: rust_decimal::Decimal =
+        sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+            .bind(tess)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, usd(2.0), "Groq failure never charges");
+    let charged: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM credit_transactions WHERE kind = 'ai_email'")
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(charged, 0, "no ai_email ledger rows on any failure path");
+
+    // Persistence + sanitization: store a draft directly (as a successful
+    // generation would) with a participant ref AND a raw typed address.
+    let draft = voxtranslate_server::ai::email_draft::EmailDraft {
+        subject: "Recap — ship Friday".into(),
+        body_text: "Hi all,\n\nwe ship Friday.".into(),
+        body_html: "<p>Hi all,</p>\n<p>we ship Friday.</p>".into(),
+    };
+    let recipients = serde_json::json!([
+        { "kind": "participant", "user_id": bob, "name": "Bob", "cc": false },
+        { "kind": "email", "email": "ext@x.com", "cc": true },
+    ]);
+    let row = voxtranslate_server::ai::email_draft::save_email(
+        &srv.pool,
+        session_id,
+        tess,
+        &draft,
+        &recipients,
+        Some("professional"),
+        None,
+        "en",
+    )
+    .await
+    .unwrap();
+
+    let got = http
+        .get(&get_url)
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(got.status(), 200);
+    let raw = got.text().await.unwrap();
+    assert!(
+        !raw.contains("user_id"),
+        "user ids never leave the server: {raw}"
+    );
+    assert!(
+        !raw.contains("body_html"),
+        "html part is server-side only: {raw}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(v["status"], "draft");
+    assert_eq!(v["subject"], "Recap — ship Friday");
+    assert_eq!(v["recipients"][0]["kind"], "participant");
+    assert_eq!(v["recipients"][0]["name"], "Bob");
+    assert_eq!(
+        v["recipients"][1]["email"], "ext@x.com",
+        "own typed address echoes"
+    );
+    assert_eq!(v["tone"], "professional");
+    assert!(v["resend_id"].is_null());
+
+    // Owner-scoping: Bob is a participant but the draft isn't his -> GET 404.
+    let bobs = http
+        .get(&get_url)
+        .bearer_auth(&bob_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bobs.status(), 404, "drafts are owner-scoped");
+
+    // Send gates: unknown draft 404, stranger 403 (session gate), participant
+    // non-owner 403 (ownership).
+    let email_id = v["id"].as_str().unwrap();
+    let missing = http
+        .post(&send_url)
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({ "email_id": Uuid::new_v4() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+    let eve_send = http
+        .post(&send_url)
+        .bearer_auth(&eve_jwt)
+        .json(&serde_json::json!({ "email_id": email_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(eve_send.status(), 403);
+    let bob_send = http
+        .post(&send_url)
+        .bearer_auth(&bob_jwt)
+        .json(&serde_json::json!({ "email_id": email_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        bob_send.status(),
+        403,
+        "participant but not the draft owner"
+    );
+
+    // Failed send (dummy Resend key -> 401 upstream): 502, the draft survives
+    // WITH the pre-send edits persisted (subject + re-rendered html).
+    let send_edited = http
+        .post(&send_url)
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({
+            "email_id": email_id,
+            "subject": "Edited",
+            "body_text": "a & b <c>\n\npara two",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(send_edited.status(), 502);
+    assert!(send_edited.text().await.unwrap().contains("draft was kept"));
+    let (status, subject, body_html): (String, String, String) =
+        sqlx::query_as("SELECT status, subject, body_html FROM session_emails WHERE id = $1")
+            .bind(row.id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "draft", "failed send never flips the status");
+    assert_eq!(subject, "Edited");
+    assert!(
+        body_html.contains("&amp;") && body_html.contains("&lt;"),
+        "{body_html}"
+    );
+
+    // Already sent -> 409.
+    sqlx::query("UPDATE session_emails SET status = 'sent' WHERE id = $1")
+        .bind(row.id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let again = http
+        .post(&send_url)
+        .bearer_auth(&tess_jwt)
+        .json(&serde_json::json!({ "email_id": email_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), 409);
 }
 
 #[tokio::test]

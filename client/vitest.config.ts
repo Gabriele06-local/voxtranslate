@@ -19,6 +19,8 @@ export default defineConfig({
         'src/scripts/recording/utils.ts',
         // AI report: only the pure markdown/cost helpers — the slot UI needs a DOM.
         'src/scripts/report-md.ts',
+        // Follow-up email: only the pure recipient helpers — the composer needs a DOM.
+        'src/scripts/email-utils.ts',
       ],
       reporter: ['text', 'json-summary'],
       reportsDirectory: './coverage-unit',

@@ -28,7 +28,11 @@ pub struct ChatRequest {
 }
 
 impl ChatRequest {
-    pub fn new(model: impl Into<String>, system: impl Into<String>, user: impl Into<String>) -> Self {
+    pub fn new(
+        model: impl Into<String>,
+        system: impl Into<String>,
+        user: impl Into<String>,
+    ) -> Self {
         Self {
             model: model.into(),
             system: system.into(),

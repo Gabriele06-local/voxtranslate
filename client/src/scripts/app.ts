@@ -25,6 +25,14 @@ const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+// Coarse mobile/tablet detection (iPadOS masquerades as macOS but is multi-touch).
+// navigator.platform is deprecated, but Safari has no userAgentData — it stays
+// the only iPadOS signal; the untyped cast keeps the deprecation hint quiet.
+const IS_MOBILE =
+  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+  (navigator.maxTouchPoints > 1 &&
+    /Mac/.test((navigator as unknown as { platform?: string }).platform ?? ''));
+
 // ---- Screens ---------------------------------------------------------------
 const loginScreen = $('login');
 const homeScreen = $('home');
@@ -407,7 +415,11 @@ function startCall(): void {
 
   // micOn / camOn carry over from the pre-join toggles.
   setControlState();
+  // Hide controls whose APIs are unavailable or unusable in this browser.
   show(btnRecord, isRecordingSupported()); // Safari etc.: no MediaRecorder → no button
+  show(btnShare, !IS_MOBILE && !!navigator.mediaDevices?.getDisplayMedia); // no screen share on mobile
+  show(btnPip, 'documentPictureInPicture' in window); // Document PiP: desktop Chromium only
+  show(btnFullscreen, !!document.documentElement.requestFullscreen); // iPhone Safari lacks it
 
   // Self cell — reflect the pre-join mic/camera choice.
   const myAvatar = billing && auth.isLoggedIn() ? auth.getUser()?.avatar_url : null;
@@ -697,7 +709,7 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   overlay.className = 'video-overlay';
   const nameEl = document.createElement('span');
   nameEl.className = 'peer-name';
-  nameEl.textContent = isSelf ? `${name} · ${t('you')}` : name;
+  nameEl.textContent = isSelf ? t('you') : name;
   const langEl = document.createElement('span');
   langEl.className = 'peer-lang';
   langEl.textContent = `${FLAG[lang] || ''} ${lang.toUpperCase()}`.trim();
@@ -2032,7 +2044,10 @@ for (const em of EMOJI_LIST) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.textContent = em;
-  btn.addEventListener('click', () => sendEmoji(em));
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // keep the panel open so multiple emojis can be added
+    insertEmoji(em);
+  });
   emojiGrid.appendChild(btn);
 }
 
@@ -2047,9 +2062,15 @@ emojiToggle.addEventListener('click', (e) => {
 });
 document.addEventListener('click', () => setEmojiPanelOpen(false));
 
-function sendEmoji(emoji: string): void {
-  ws?.send(JSON.stringify({ type: 'emoji', emoji }));
-  setEmojiPanelOpen(false);
+function insertEmoji(emoji: string): void {
+  const start = chatInput.selectionStart ?? chatInput.value.length;
+  const end = chatInput.selectionEnd ?? start;
+  const next = chatInput.value.slice(0, start) + emoji + chatInput.value.slice(end);
+  if (next.length > chatInput.maxLength) return;
+  chatInput.value = next;
+  const pos = start + emoji.length;
+  chatInput.focus();
+  chatInput.setSelectionRange(pos, pos);
 }
 
 initCookieBanner();

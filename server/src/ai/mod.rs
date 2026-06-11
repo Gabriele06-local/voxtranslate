@@ -2,6 +2,7 @@
 //! draft) and live suggestions: transcript→text rendering, chunking, and a
 //! map-reduce condenser for transcripts too long for one model call.
 
+pub mod email_draft;
 pub mod report;
 pub mod sentiment;
 
@@ -55,7 +56,12 @@ pub fn transcript_to_text(export: &TranscriptExport) -> String {
 }
 
 fn hms(secs: i64) -> String {
-    format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60)
+    format!(
+        "{:02}:{:02}:{:02}",
+        secs / 3600,
+        (secs % 3600) / 60,
+        secs % 60
+    )
 }
 
 /// Split `text` into chunks of at most `max_chars`, breaking on line

@@ -41,8 +41,18 @@ Each spec follows the same skeleton:
 | [0006](0006-trust-safety-gdpr/spec.md) | Trust & safety + GDPR (consent, moderation, report/block, legal) | ✅ Shipped | 2026-06-10 | `4b84f87`, `b166d9b` |
 | [0007](0007-backoffice-directus/spec.md) | Backoffice: admin actions + managed content + Directus studio | ✅ Shipped | 2026-06-10 | `ce06868`, `c0a80af`, `41305ec` |
 | [0008](0008-managed-content-i18n/spec.md) | Managed content & i18n: DB-overridable strings, legal pages, 404 | ✅ Shipped | 2026-06-10 | `151980c`, `90492d1`, `c10a2df` |
-| [0009](0009-session-transcripts/spec.md) | Session transcript download (PDF + JSON) | In progress | — | — |
-| [0010](0010-composite-recording/spec.md) | Composite video recording (client-side) | In progress | — | — |
+| [0009](0009-session-transcripts/spec.md) | Session transcript download (PDF + JSON) | ✅ Shipped | 2026-06-10 | `7c969de` |
+| [0010](0010-composite-recording/spec.md) | Composite video recording (client-side) | ✅ Shipped | 2026-06-10 | `7c969de` |
+| 0011 | Room glossary: enforced terminology in translations | ✅ Shipped — *spec doc pending* | 2026-06-10 | `18d20f8` |
+| 0012 | Auto language detection (join with "auto") | ✅ Shipped — *spec doc pending* | 2026-06-10 | `a594e94` |
+| 0013 | In-call bookmarks: labels, side panel, exports | ✅ Shipped — *spec doc pending* | 2026-06-10 | `f6eb14a` |
+| 0014 | AI session report (Groq, credit-billed) | ✅ Shipped — *spec doc pending* | 2026-06-10 | `c2bc646` |
+| 0015 | Sentiment analysis (chunked scoring, cached) | ✅ Shipped — *spec doc pending* | 2026-06-10 | `d5ce553` |
+| [0016](0016-follow-up-email/spec.md) | Follow-up email: AI draft + Resend delivery | ✅ Shipped | 2026-06-11 | (this PR) |
+
+> Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
+> without spec docs (and 0011/0012 were each reused twice); the assignments
+> above are now canonical. Backfill is an open item.
 
 ## System at a glance
 

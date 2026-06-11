@@ -7,6 +7,7 @@
 import * as auth from './auth';
 import { fetchTranscript, type TranscriptDoc } from './api';
 import { getUiLang, t } from './i18n';
+import { initEmailSlot, updateEmailContext } from './email';
 import { initReportSlot } from './report';
 import { initSentimentSlot, updateSentimentContext } from './sentiment';
 
@@ -37,6 +38,7 @@ export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void 
   $('session').classList.remove('hidden');
   initReportSlot(ref);
   initSentimentSlot(ref);
+  initEmailSlot(ref);
   void renderTranscript(ref);
   $('session-back').focus();
 }
@@ -106,6 +108,11 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
     doc.session.participants.length,
     doc.session.duration_seconds,
     (doc.bookmarks ?? []).map((bm) => Math.max(0, (new Date(bm.ts).getTime() - startMs) / 1000)),
+  );
+  // The email composer's To-chips come from the same roster.
+  updateEmailContext(
+    ref.id,
+    doc.session.participants.map((p) => ({ id: p.id, name: p.name })),
   );
   renderBookmarks(doc);
   renderEvents(list, doc);
