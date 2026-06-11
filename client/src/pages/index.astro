@@ -1107,13 +1107,9 @@ const LANGS = [
       .control-bar {
         gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
         scrollbar-width: none; /* Firefox */
-        /* Fade on right edge to hint at more buttons */
-        -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
-        mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
       }
       .control-bar::-webkit-scrollbar { display: none; }
       .control-btn { width: 42px; height: 42px; font-size: 1rem; flex-shrink: 0; }
-      .control-btn.leave { width: 52px; } /* slightly wider leave button for safety */
     }
 
     @media (max-width: 768px) {
