@@ -1274,7 +1274,10 @@ async function toggleBgBlur(): Promise<void> {
   bgMode = bgMode === 'blur' ? 'none' : 'blur';
   setControlState(); // reflect intent right away (segmentation may load lazily)
   try {
-    if (camOn && localStream && !isSharingScreen) {
+    if (camOn && localStream) {
+      // Rebuild the outgoing track in localStream even while screen-sharing —
+      // setOutgoingVideo skips the peer push during a share, and stopScreenShare
+      // then restores whatever (raw or blurred) track is in localStream.
       const raw = currentRawCameraTrack();
       if (raw) await setOutgoingVideo(raw);
     }
@@ -1285,11 +1288,10 @@ async function toggleBgBlur(): Promise<void> {
 }
 
 // Fully release the camera device — track.stop() turns the hardware LED off,
-// unlike track.enabled = false which keeps the device powered. The (now ended)
-// outgoing track stays in localStream as a placeholder so the video sender
-// remains negotiated; peers hide the frozen frame via the mute_video signal
-// sent by toggleCamera. While screen-sharing the outgoing track is the screen,
-// so this just powers down the idle camera.
+// unlike track.enabled = false which keeps the device powered. The outgoing
+// video is cleared on peers via replaceVideoTrack(null); the always-present
+// video transceiver lets a later enableCamera swap a track back in with no
+// renegotiation. While screen-sharing the sender carries the screen, so leave it.
 function disableCamera(): void {
   // With background blur on, the real camera is the VB's source (not in
   // localStream); stop it too so the hardware LED actually turns off.
@@ -1298,8 +1300,13 @@ function disableCamera(): void {
     vbg.stop();
     vbg = null;
   }
-  if (!localStream) return;
-  localStream.getVideoTracks().forEach((track) => track.stop());
+  if (localStream) {
+    for (const v of localStream.getVideoTracks()) {
+      v.stop();
+      localStream.removeTrack(v);
+    }
+  }
+  if (!isSharingScreen) mesh?.replaceVideoTrack(null);
 }
 
 // Re-open the camera and route its fresh track (raw or blurred) to peers + our
@@ -1339,10 +1346,10 @@ async function setOutgoingVideo(raw: MediaStreamTrack): Promise<void> {
   }
   localStream.addTrack(outgoing);
   // While screen-sharing the track waits in localStream until sharing stops
-  // (stopScreenShare's setLocalStream restores it); don't disturb the screen feed.
+  // (stopScreenShare restores it via replaceVideoTrack); don't disturb the screen.
   if (!isSharingScreen) {
-    mesh?.setLocalStream(localStream); // replaceTrack on the existing video sender
-    refreshSelfVideo();
+    mesh?.replaceVideoTrack(outgoing); // swap the video sender (transceiver-backed)
+    setSelfVideo(localStream);
     recorder?.updateStream(myId, localStream);
   }
 }
@@ -1370,18 +1377,6 @@ async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
     return raw;
   }
   return track;
-}
-
-/** Re-point the self tile <video> at localStream so a swapped video track renders
- *  (re-assigning the same MediaStream object alone is a no-op). */
-function refreshSelfVideo(): void {
-  const video = videoGrid.querySelector(
-    `[data-peer="${cssEsc(myId)}"] video`,
-  ) as HTMLVideoElement | null;
-  if (!video || !localStream) return;
-  video.srcObject = null;
-  video.srcObject = localStream;
-  void video.play().catch(() => {});
 }
 
 btnTts.addEventListener('click', () => {
@@ -1502,14 +1497,24 @@ btnShare.addEventListener('click', () => {
 });
 
 async function startScreenShare(): Promise<void> {
-  if (!mesh || !localStream) return;
+  // Independent of the camera: works whether you're camera-on, camera-off, or
+  // joined audio-only. We keep `localStream` as the real mic/camera stream and
+  // only swap the outgoing *video* track for the screen.
+  if (!mesh) return;
   try {
     const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     screenStream = s;
     isSharingScreen = true;
-    // Replace video track on all peers with screen track (audio stays from mic)
-    mesh.setLocalStream(s);
-    // Recorder self tile follows what peers see.
+    // Send the screen on every peer's video sender (replaces the camera feed,
+    // mic audio is untouched). The always-present video transceiver means this
+    // reaches peers even when we joined without a camera.
+    mesh.replaceVideoTrack(s.getVideoTracks()[0] ?? null);
+    // Peers may have us flagged camera-off (their tile would hide the video);
+    // tell them to reveal it so the shared screen actually shows.
+    ws?.send(JSON.stringify({ type: 'mute_video', muted: false }));
+    // Our own tile + recorder show the screen, regardless of camera state.
+    setSelfVideo(s);
+    setCameraOff(myId, false);
     recorder?.updateStream(myId, s);
     recorder?.setVideoOff(myId, false);
     // Show indicator on self cell
@@ -1528,19 +1533,28 @@ async function startScreenShare(): Promise<void> {
     playScreenShareSound(); // audible cue that screen sharing has started
     setControlState();
   } catch {
-    // User cancelled
+    // User cancelled the picker — roll back the optimistic flag.
+    isSharingScreen = false;
+    screenStream = null;
   }
 }
 
 function stopScreenShare(): void {
-  if (!isSharingScreen || !mesh || !localStream) return;
+  if (!isSharingScreen || !mesh) return;
   isSharingScreen = false;
   if (screenStream) {
     screenStream.getTracks().forEach((t) => t.stop());
     screenStream = null;
   }
-  // Restore camera stream
-  mesh.setLocalStream(localStream);
+  // Restore the camera feed for peers (or clear video when the camera is off /
+  // we joined audio-only), honouring the current camera toggle.
+  const camTrack = localStream?.getVideoTracks()[0] ?? null;
+  mesh.replaceVideoTrack(camTrack);
+  mesh.setVideoEnabled(camOn);
+  ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+  // Our own tile + recorder back to the camera (or camera-off avatar).
+  setSelfVideo(localStream);
+  setCameraOff(myId, !camOn);
   recorder?.updateStream(myId, localStream);
   recorder?.setVideoOff(myId, !camOn);
   // Remove badge
@@ -1548,6 +1562,18 @@ function stopScreenShare(): void {
   cell?.querySelector('.screen-share-badge')?.remove();
   setControlState();
   showNotif(t('stopShare'));
+}
+
+/** Point the self tile's <video> at a stream (camera or screen). Re-assigning the
+ *  same MediaStream object is a no-op, so null it first to force a re-render when
+ *  the stream's video track was swapped in place (camera ↔ blur). */
+function setSelfVideo(stream: MediaStream | null): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+  const video = cell?.querySelector('video') as HTMLVideoElement | null;
+  if (!video || !stream) return;
+  if (video.srcObject === stream) video.srcObject = null;
+  video.srcObject = stream;
+  void video.play().catch(() => {});
 }
 
 btnRecord.addEventListener('click', () => {

@@ -80,9 +80,10 @@ toggle.
   - *CDN lazy-load over bundling* — keeps the build lean and avoids Vite/WASM
     asset wrangling; cost is a runtime CDN dependency, acceptable for an opt-in
     effect with a fallback.
-  - *Processed track in `localStream`* — reuses the established `setLocalStream`
-    fan-out instead of adding a new mesh method; new peers automatically receive
-    the blurred track.
+  - *Processed track in `localStream`* — `localStream`'s video track is the
+    outgoing track, pushed to peers with `MeshManager.replaceVideoTrack` (the
+    always-negotiated video transceiver makes this reliable even for audio-only
+    joins); new peers automatically receive the blurred track from `localStream`.
 
 ## 5. Implementation
 
