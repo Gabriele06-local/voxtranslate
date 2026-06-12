@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | ✅ Shipped (dormant until Supabase provisioned) |
+| **Status** | ✅ Shipped & live (Supabase `chat-files` bucket provisioned) |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-06-12 |
 | **Shipped** | 2026-06-12 |
