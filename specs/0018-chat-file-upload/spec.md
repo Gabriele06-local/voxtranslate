@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped (dormant until Supabase provisioned) |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-06-12 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-12 |
 | **Version** | — |
-| **Commits** | _(see PR for #2)_ |
+| **Commits** | `d04604a` (PR #10, closes #2) |
 | **Depends on** | [0002](../0002-video-calls-translated-chat/spec.md), [0005](../0005-accounts-credits-billing/spec.md), [0009](../0009-session-transcripts/spec.md), [0012](../0012-auto-language-detection/spec.md) |
 
 ## 1. Context & Problem
